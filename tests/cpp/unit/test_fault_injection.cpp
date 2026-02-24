@@ -559,3 +559,86 @@ TEST(SplitBrainFault, DivergentEventsPerZone) {
     EXPECT_GE(zone1.event_queue_depth(), 1u);
     EXPECT_GE(zone2.event_queue_depth(), 1u);
 }
+
+// =============================================================================
+// Group L: ThunderingHerdFault F8 (4 tests)
+// =============================================================================
+
+TEST(ThunderingHerdFault, IdAndModeCorrect) {
+    ThunderingHerdFault fault;
+    EXPECT_EQ(fault.id(), "thundering-herd");
+    EXPECT_EQ(fault.mode(), FaultMode::TICK_SCOPED);
+}
+
+TEST(ThunderingHerdFault, PlayersRemovedNpcsKept) {
+    ThunderingHerdFault fault;
+    FaultConfig config;
+    config.params = {{"reconnect_delay_ticks", 100}};  // large delay so no reconnect
+    fault.activate(config);
+
+    Zone zone(ZoneConfig{1, "Test Zone"});
+    zone.add_entity(Entity(100, EntityType::PLAYER));
+    zone.add_entity(Entity(101, EntityType::PLAYER));
+    zone.add_entity(Entity(1000001, EntityType::NPC));
+    ASSERT_EQ(zone.entity_count(), 3u);
+
+    fault.on_tick(1, &zone);
+
+    // Players removed, NPC kept
+    EXPECT_EQ(zone.entity_count(), 1u);
+    EXPECT_FALSE(zone.has_entity(100));
+    EXPECT_FALSE(zone.has_entity(101));
+    EXPECT_TRUE(zone.has_entity(1000001));
+}
+
+TEST(ThunderingHerdFault, PlayersReaddedAfterDelay) {
+    ThunderingHerdFault fault;
+    FaultConfig config;
+    config.params = {{"reconnect_delay_ticks", 3}};
+    fault.activate(config);
+
+    Zone zone(ZoneConfig{1, "Test Zone"});
+    zone.add_entity(Entity(100, EntityType::PLAYER));
+    zone.add_entity(Entity(101, EntityType::PLAYER));
+    zone.add_entity(Entity(1000001, EntityType::NPC));
+
+    // Tick 1: disconnect
+    fault.on_tick(1, &zone);
+    ASSERT_EQ(zone.entity_count(), 1u);  // only NPC
+
+    // Ticks 2-3: waiting
+    fault.on_tick(2, &zone);
+    EXPECT_EQ(zone.entity_count(), 1u);
+    fault.on_tick(3, &zone);
+    EXPECT_EQ(zone.entity_count(), 1u);
+
+    // Tick 4: reconnect (3 ticks after tick 1)
+    fault.on_tick(4, &zone);
+    EXPECT_EQ(zone.entity_count(), 3u);  // NPC + 2 players
+    EXPECT_TRUE(zone.has_entity(100));
+    EXPECT_TRUE(zone.has_entity(101));
+}
+
+TEST(ThunderingHerdFault, ResetOnDeactivate) {
+    ThunderingHerdFault fault;
+    FaultConfig config;
+    config.params = {{"reconnect_delay_ticks", 100}};
+    fault.activate(config);
+
+    Zone zone(ZoneConfig{1, "Test Zone"});
+    zone.add_entity(Entity(100, EntityType::PLAYER));
+
+    fault.on_tick(1, &zone);
+    ASSERT_EQ(zone.entity_count(), 0u);
+
+    // Deactivate clears stored state
+    fault.deactivate();
+    EXPECT_FALSE(fault.is_active());
+
+    // Re-activate on a zone with a new player — should disconnect again
+    zone.add_entity(Entity(200, EntityType::PLAYER));
+    fault.activate(config);
+    fault.on_tick(1, &zone);
+    EXPECT_EQ(zone.entity_count(), 0u);
+    EXPECT_FALSE(zone.has_entity(200));
+}
