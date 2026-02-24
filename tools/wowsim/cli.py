@@ -541,5 +541,75 @@ def benchmark(
     sys.exit(0 if result.overall_passed else 1)
 
 
+@main.command()
+@click.option(
+    "--project-root",
+    default=None,
+    type=click.Path(exists=True, file_okay=False),
+    help="Project root directory (default: auto-detect).",
+)
+@click.option("--host", default="localhost", help="Game server host.")
+@click.option("--port", default=8080, type=int, help="Game server port.")
+@click.option("--control-port", default=8081, type=int, help="Control channel port.")
+@click.option(
+    "--refresh", default=2.0, type=float, help="Dashboard refresh interval in seconds."
+)
+def demo(
+    project_root: str | None,
+    host: str,
+    port: int,
+    control_port: int,
+    refresh: float,
+) -> None:
+    """Launch interactive demo: start server, open dashboard, explore reliability lifecycle."""
+    from wowsim.demo_runner import (
+        ServerProcess,
+        clean_telemetry,
+        default_telemetry_path,
+        find_server_binary,
+    )
+
+    if project_root is None:
+        root = Path.cwd()
+    else:
+        root = Path(project_root)
+
+    binary = find_server_binary(root)
+    if binary is None:
+        raise click.ClickException(
+            "Server binary not found. Build first: bash scripts/build.sh"
+        )
+
+    telemetry_path = default_telemetry_path(root)
+    clean_telemetry(telemetry_path)
+
+    server = ServerProcess(binary, telemetry_path)
+
+    click.echo(f"Starting server: {binary}")
+    try:
+        server.start(timeout=10)
+    except RuntimeError as exc:
+        raise click.ClickException(str(exc))
+
+    click.echo("Server ready — launching dashboard...")
+
+    try:
+        from wowsim.dashboard import DashboardConfig, WoWDashboardApp
+
+        config = DashboardConfig(
+            log_file=telemetry_path,
+            host=host,
+            port=port,
+            control_port=control_port,
+            refresh_interval=refresh,
+        )
+        WoWDashboardApp(config).run()
+    finally:
+        click.echo("Stopping server...")
+        server.stop()
+        clean_telemetry(telemetry_path)
+        click.echo("Done.")
+
+
 if __name__ == "__main__":
     main()
