@@ -7,6 +7,7 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- Architecture diagrams in Mermaid (`docs/diagrams/`): 5 diagrams covering system overview, thread model, tick pipeline with fault injection points, session state machine, and Python tool composition. Linked from ARCHITECTURE.md with cross-references from inline ASCII diagrams and transition tables. GitHub renders Mermaid natively in markdown
 - Demo walkthrough script (`scripts/demo.sh`): narrated, color-coded 6-phase bash script demonstrating the full server reliability lifecycle (baseline → break → diagnose → fix → pipeline → summary) in ~70 seconds. Composes all 5 Python CLI tools (spawn-clients, health, parse-logs, inject-fault, deploy) against the live C++ server. Cross-platform binary detection (Windows/Linux), TTY-safe ANSI colors, server lifecycle management with cleanup trap (ADR-027)
 - Performance benchmark suite (`wowsim.benchmark`): automated scaling tests composing mock_client + health_check + percentile computation. Runs client count sweep (default 0/10/25/50/100), computes P50/P95/P99 tick durations via nearest-rank method, evaluates against configurable thresholds (avg ≤ 50ms, p99 ≤ 100ms, overrun ≤ 5%). Pure function core with thin I/O wrappers for monkeypatch-testable orchestration (ADR-026)
 - `PercentileStats`, `ScenarioResult`, `BenchmarkConfig`, `BenchmarkResult` Pydantic v2 models in `wowsim.models` — percentile distributions, per-scenario outcomes, configurable thresholds, and full benchmark results with JSON serialization
