@@ -453,3 +453,58 @@ TEST(CascadingZoneFailureFault, InactiveIsNoOp) {
     EXPECT_NO_THROW(fault.on_tick(1, &zone));
     EXPECT_EQ(zone.event_queue_depth(), 0u);
 }
+
+// =============================================================================
+// Group J: SlowLeakFault F6 (3 tests)
+// =============================================================================
+
+TEST(SlowLeakFault, IdAndModeCorrect) {
+    SlowLeakFault fault;
+    EXPECT_EQ(fault.id(), "slow-leak");
+    EXPECT_EQ(fault.mode(), FaultMode::TICK_SCOPED);
+}
+
+TEST(SlowLeakFault, DelayGrowsOverTicks) {
+    SlowLeakFault fault;
+    FaultConfig config;
+    // Increment 1ms every 1 tick for fast testing
+    config.params = {{"increment_ms", 1}, {"increment_every", 1}};
+    fault.activate(config);
+
+    Zone zone(ZoneConfig{1, "Test Zone"});
+
+    // After 5 ticks: delay should be 5ms
+    for (uint64_t t = 1; t <= 5; ++t) {
+        fault.on_tick(t, &zone);
+    }
+    EXPECT_EQ(fault.current_delay_ms(), 5u);
+
+    // Tick 6 should add another ms
+    fault.on_tick(6, &zone);
+    EXPECT_EQ(fault.current_delay_ms(), 6u);
+}
+
+TEST(SlowLeakFault, ResetOnDeactivateReactivate) {
+    SlowLeakFault fault;
+    FaultConfig config;
+    config.params = {{"increment_ms", 1}, {"increment_every", 1}};
+    fault.activate(config);
+
+    Zone zone(ZoneConfig{1, "Test Zone"});
+
+    // Accumulate some delay
+    for (uint64_t t = 1; t <= 5; ++t) {
+        fault.on_tick(t, &zone);
+    }
+    ASSERT_EQ(fault.current_delay_ms(), 5u);
+
+    // Deactivate should reset
+    fault.deactivate();
+    EXPECT_EQ(fault.current_delay_ms(), 0u);
+
+    // Re-activate should start fresh
+    fault.activate(config);
+    EXPECT_EQ(fault.current_delay_ms(), 0u);
+    fault.on_tick(1, &zone);
+    EXPECT_EQ(fault.current_delay_ms(), 1u);
+}
