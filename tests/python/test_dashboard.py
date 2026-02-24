@@ -148,3 +148,118 @@ class TestFaultActionLabel:
         from wowsim.dashboard import fault_action_label
 
         assert fault_action_label(False) == "Activate"
+
+
+# ---------------------------------------------------------------------------
+# Group F: New entry filtering (3 tests)
+# ---------------------------------------------------------------------------
+
+
+class TestFilterNewEntries:
+    """filter_new_entries applies timestamp watermark to avoid duplicates."""
+
+    def test_first_load_returns_last_20(self, health_log_entries) -> None:
+        """With no prior watermark, return the last 20 entries (or all if < 20)."""
+        from wowsim.dashboard import filter_new_entries
+
+        entries, new_ts = filter_new_entries(health_log_entries, last_ts=None)
+        # health_log_entries has 11 entries, all should be returned
+        assert len(entries) == 11
+        assert new_ts is not None
+        # watermark should be the timestamp of the last entry
+        assert new_ts == health_log_entries[-1].timestamp
+
+    def test_subsequent_load_filters_by_watermark(self) -> None:
+        """Only entries newer than last_ts are returned."""
+        from wowsim.dashboard import filter_new_entries
+
+        ts1 = datetime(2026, 2, 24, 10, 0, 0, tzinfo=timezone.utc)
+        ts2 = datetime(2026, 2, 24, 10, 0, 1, tzinfo=timezone.utc)
+        ts3 = datetime(2026, 2, 24, 10, 0, 2, tzinfo=timezone.utc)
+
+        entries = [
+            TelemetryEntry(v=1, timestamp=ts1, type="event", component="a", message="m1"),
+            TelemetryEntry(v=1, timestamp=ts2, type="event", component="b", message="m2"),
+            TelemetryEntry(v=1, timestamp=ts3, type="event", component="c", message="m3"),
+        ]
+        result, new_ts = filter_new_entries(entries, last_ts=ts1)
+        assert len(result) == 2
+        assert result[0].component == "b"
+        assert result[1].component == "c"
+        assert new_ts == ts3
+
+    def test_empty_entries(self) -> None:
+        """Empty entry list returns empty list and None watermark."""
+        from wowsim.dashboard import filter_new_entries
+
+        entries, new_ts = filter_new_entries([], last_ts=None)
+        assert entries == []
+        assert new_ts is None
+
+
+# ---------------------------------------------------------------------------
+# Group G: DashboardConfig (2 tests)
+# ---------------------------------------------------------------------------
+
+
+class TestDashboardConfig:
+    """DashboardConfig holds connection and display parameters."""
+
+    def test_defaults(self, tmp_path) -> None:
+        from wowsim.dashboard import DashboardConfig
+
+        log_file = tmp_path / "test.jsonl"
+        log_file.write_text("")
+        config = DashboardConfig(log_file=log_file)
+        assert config.host == "localhost"
+        assert config.port == 8080
+        assert config.control_port == 8081
+        assert config.refresh_interval == 2.0
+
+    def test_custom_overrides(self, tmp_path) -> None:
+        from wowsim.dashboard import DashboardConfig
+
+        log_file = tmp_path / "test.jsonl"
+        log_file.write_text("")
+        config = DashboardConfig(
+            log_file=log_file,
+            host="10.0.0.1",
+            port=9090,
+            control_port=9091,
+            refresh_interval=5.0,
+        )
+        assert config.host == "10.0.0.1"
+        assert config.port == 9090
+        assert config.control_port == 9091
+        assert config.refresh_interval == 5.0
+
+
+# ---------------------------------------------------------------------------
+# Group H: CLI integration (2 tests)
+# ---------------------------------------------------------------------------
+
+
+class TestCLI:
+    """CLI dashboard command is wired and validates options."""
+
+    def test_missing_log_file_errors(self) -> None:
+        from click.testing import CliRunner
+
+        from wowsim.cli import main
+
+        runner = CliRunner()
+        result = runner.invoke(main, ["dashboard"])
+        assert result.exit_code != 0
+        assert "log-file" in result.output.lower() or "log_file" in result.output.lower() or "Missing" in result.output or "required" in result.output.lower()
+
+    def test_help_shows_options(self) -> None:
+        from click.testing import CliRunner
+
+        from wowsim.cli import main
+
+        runner = CliRunner()
+        result = runner.invoke(main, ["dashboard", "--help"])
+        assert result.exit_code == 0
+        assert "--log-file" in result.output
+        assert "--host" in result.output
+        assert "--refresh" in result.output
