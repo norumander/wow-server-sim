@@ -362,5 +362,107 @@ def dashboard(
     WoWDashboardApp(config).run()
 
 
+@main.command()
+@click.option("--fault-id", required=True, help="Fault to deploy.")
+@click.option(
+    "--action",
+    type=click.Choice(["activate", "deactivate"]),
+    default="activate",
+    help="Deploy action.",
+)
+@click.option("--version", "deploy_version", default="1.0.0", help="Deploy version.")
+@click.option(
+    "--canary-duration", default=10.0, type=float, help="Canary duration (seconds)."
+)
+@click.option(
+    "--canary-interval", default=2.0, type=float, help="Canary poll interval (seconds)."
+)
+@click.option(
+    "--rollback-on",
+    type=click.Choice(["critical", "degraded"]),
+    default="critical",
+    help="Rollback threshold.",
+)
+@click.option("--log-file", default=None, type=click.Path(), help="Telemetry log file.")
+@click.option("--host", default="localhost", help="Game server host.")
+@click.option("--port", default=8080, type=int, help="Game server port.")
+@click.option("--control-port", default=8081, type=int, help="Control channel port.")
+@click.option("--delay-ms", type=int, default=None, help="Latency spike delay (ms).")
+@click.option("--megabytes", type=int, default=None, help="Memory pressure size (MB).")
+@click.option("--multiplier", type=int, default=None, help="Event flood multiplier.")
+@click.option("--duration", default=None, help="Fault duration: '5s' or '100t'.")
+@click.option(
+    "--zone", "target_zone_id", type=int, default=0, help="Target zone (0=all)."
+)
+@click.option(
+    "--format",
+    "output_format",
+    type=click.Choice(["text", "json"]),
+    default="text",
+    help="Output format.",
+)
+def deploy(
+    fault_id: str,
+    action: str,
+    deploy_version: str,
+    canary_duration: float,
+    canary_interval: float,
+    rollback_on: str,
+    log_file: str | None,
+    host: str,
+    port: int,
+    control_port: int,
+    delay_ms: int | None,
+    megabytes: int | None,
+    multiplier: int | None,
+    duration: str | None,
+    target_zone_id: int,
+    output_format: str,
+) -> None:
+    """Run a hotfix deployment pipeline (build -> validate -> canary -> promote/rollback)."""
+    from wowsim.fault_trigger import parse_duration
+    from wowsim.models import PipelineConfig
+    from wowsim.pipeline import format_pipeline_result, run_pipeline
+
+    params: dict[str, int] = {}
+    if delay_ms is not None:
+        params["delay_ms"] = delay_ms
+    if megabytes is not None:
+        params["megabytes"] = megabytes
+    if multiplier is not None:
+        params["multiplier"] = multiplier
+
+    duration_ticks = 0
+    if duration is not None:
+        try:
+            duration_ticks = parse_duration(duration)
+        except ValueError as exc:
+            raise click.ClickException(str(exc))
+
+    config = PipelineConfig(
+        version=deploy_version,
+        fault_id=fault_id,
+        action=action,
+        params=params,
+        target_zone_id=target_zone_id,
+        duration_ticks=duration_ticks,
+        canary_duration_seconds=canary_duration,
+        canary_poll_interval_seconds=canary_interval,
+        rollback_on=rollback_on,
+        game_host=host,
+        game_port=port,
+        control_host=host,
+        control_port=control_port,
+        log_file=log_file,
+    )
+
+    result = run_pipeline(config)
+
+    if output_format == "json":
+        click.echo(result.model_dump_json(indent=2))
+    else:
+        click.echo(format_pipeline_result(result))
+
+
 if __name__ == "__main__":
     main()
