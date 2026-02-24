@@ -5,6 +5,7 @@ from io import StringIO
 from pathlib import Path
 
 from wowsim.log_parser import (
+    detect_anomalies,
     filter_entries,
     parse_file,
     parse_line,
@@ -157,3 +158,67 @@ class TestSummarize:
         assert summary.time_range_end is not None
         # All sample entries use the same timestamp, so duration is 0
         assert summary.duration_seconds >= 0.0
+
+
+# ============================================================
+# Group E: Anomaly Detection (5 tests)
+# ============================================================
+
+
+class TestAnomalyDetection:
+    """Tests for detect_anomalies()."""
+
+    def test_detect_latency_spike_warning(
+        self, entries_with_anomalies: list[str]
+    ) -> None:
+        """Tick with duration_ms=70 detected as warning latency spike."""
+        entries = [parse_line(line) for line in entries_with_anomalies]
+        entries = [e for e in entries if e is not None]
+        anomalies = detect_anomalies(entries)
+        warnings = [
+            a
+            for a in anomalies
+            if a.type == "latency_spike" and a.severity == "warning"
+        ]
+        assert len(warnings) >= 1
+        assert "70" in warnings[0].message or "70.0" in warnings[0].message
+
+    def test_detect_latency_spike_critical(
+        self, entries_with_anomalies: list[str]
+    ) -> None:
+        """Tick with duration_ms=150 detected as critical latency spike."""
+        entries = [parse_line(line) for line in entries_with_anomalies]
+        entries = [e for e in entries if e is not None]
+        anomalies = detect_anomalies(entries)
+        criticals = [
+            a
+            for a in anomalies
+            if a.type == "latency_spike" and a.severity == "critical"
+        ]
+        assert len(criticals) >= 1
+        assert "150" in criticals[0].message or "150.0" in criticals[0].message
+
+    def test_detect_zone_crash(self, entries_with_anomalies: list[str]) -> None:
+        """Zone tick exception detected as critical zone_crash anomaly."""
+        entries = [parse_line(line) for line in entries_with_anomalies]
+        entries = [e for e in entries if e is not None]
+        anomalies = detect_anomalies(entries)
+        zone_crashes = [a for a in anomalies if a.type == "zone_crash"]
+        assert len(zone_crashes) >= 1
+        assert zone_crashes[0].severity == "critical"
+
+    def test_detect_error_burst(self, entries_with_anomalies: list[str]) -> None:
+        """5+ errors within 10 seconds detected as critical error_burst."""
+        entries = [parse_line(line) for line in entries_with_anomalies]
+        entries = [e for e in entries if e is not None]
+        anomalies = detect_anomalies(entries)
+        bursts = [a for a in anomalies if a.type == "error_burst"]
+        assert len(bursts) >= 1
+        assert bursts[0].severity == "critical"
+
+    def test_detect_no_anomalies_clean_log(self, sample_metric_line: str) -> None:
+        """Healthy entries produce no anomalies."""
+        entry = parse_line(sample_metric_line)
+        assert entry is not None
+        anomalies = detect_anomalies([entry])
+        assert anomalies == []

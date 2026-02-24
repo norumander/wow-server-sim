@@ -9,7 +9,13 @@ from typing import TextIO
 
 from pydantic import ValidationError
 
-from wowsim.models import LogSummary, TelemetryEntry
+from wowsim.models import Anomaly, LogSummary, TelemetryEntry
+
+# --- Anomaly detection thresholds ---
+DEFAULT_TICK_DURATION_WARN_MS = 60.0
+DEFAULT_TICK_DURATION_CRIT_MS = 100.0
+DEFAULT_ERROR_BURST_THRESHOLD = 5
+DEFAULT_ERROR_BURST_WINDOW_SEC = 10.0
 
 
 def parse_line(line: str) -> TelemetryEntry | None:
@@ -89,3 +95,14 @@ def summarize(entries: list[TelemetryEntry]) -> LogSummary:
         time_range_end=end,
         duration_seconds=duration,
     )
+
+
+def detect_anomalies(
+    entries: list[TelemetryEntry],
+    tick_warn_ms: float = DEFAULT_TICK_DURATION_WARN_MS,
+    tick_crit_ms: float = DEFAULT_TICK_DURATION_CRIT_MS,
+    error_burst_threshold: int = DEFAULT_ERROR_BURST_THRESHOLD,
+    error_burst_window_sec: float = DEFAULT_ERROR_BURST_WINDOW_SEC,
+) -> list[Anomaly]:
+    """Detect anomalies in the telemetry stream."""
+    raise NotImplementedError
