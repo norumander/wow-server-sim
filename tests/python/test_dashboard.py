@@ -333,3 +333,41 @@ class TestSpawnClientsBinding:
 
         assert hasattr(WoWDashboardApp, "action_spawn_clients")
         assert callable(getattr(WoWDashboardApp, "action_spawn_clients"))
+
+
+# ---------------------------------------------------------------------------
+# Group K: Fault catalog and format_fault_option (3 tests)
+# ---------------------------------------------------------------------------
+
+
+class TestFaultCatalog:
+    """FAULT_CATALOG contains all 8 fault scenarios with descriptions."""
+
+    def test_catalog_has_all_faults(self) -> None:
+        from wowsim.dashboard import FAULT_CATALOG
+
+        expected = {
+            "latency-spike",
+            "session-crash",
+            "event-queue-flood",
+            "memory-pressure",
+            "cascading-zone-failure",
+            "slow-leak",
+            "split-brain",
+            "thundering-herd",
+        }
+        assert set(FAULT_CATALOG.keys()) == expected
+
+    def test_each_fault_has_description(self) -> None:
+        from wowsim.dashboard import FAULT_CATALOG
+
+        for fault_id, info in FAULT_CATALOG.items():
+            assert "description" in info, f"{fault_id} missing description"
+            assert len(info["description"]) > 0
+
+    def test_format_fault_option(self) -> None:
+        from wowsim.dashboard import format_fault_option
+
+        result = format_fault_option("latency-spike", "Add 200ms delay")
+        assert "latency-spike" in result
+        assert "200ms" in result
