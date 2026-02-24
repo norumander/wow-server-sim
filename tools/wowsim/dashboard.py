@@ -169,6 +169,7 @@ try:
         BINDINGS = [
             ("q", "quit", "Quit"),
             ("r", "refresh", "Refresh"),
+            ("s", "spawn_clients", "Spawn"),
             ("a", "activate_fault", "Activate"),
             ("d", "deactivate_fault", "Deactivate"),
             ("x", "deactivate_all", "Deact All"),
@@ -322,6 +323,29 @@ try:
             """Manual refresh triggered by 'r' key."""
             self._trigger_refresh()
             self.notify("Refreshed")
+
+        def action_spawn_clients(self) -> None:
+            """Spawn 5 mock clients via thread worker (key: s)."""
+            self.notify("Spawning 5 clients...")
+            self._do_spawn_clients()
+
+        @work(thread=True)
+        def _do_spawn_clients(self) -> None:
+            """Run mock client spawn in a worker thread."""
+            from wowsim.mock_client import run_spawn
+            from wowsim.models import ClientConfig
+
+            config = ClientConfig(
+                host=self._config.host,
+                port=self._config.port,
+            )
+            result = run_spawn(config, 5)
+            ok = result.successful_connections
+            self.call_from_thread(
+                self.notify,
+                f"Spawned {ok}/5 clients",
+            )
+            self.call_from_thread(self._trigger_refresh)
 
         async def action_activate_fault(self) -> None:
             """Activate the first inactive fault (demo convenience)."""
