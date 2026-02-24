@@ -1,5 +1,13 @@
 #include "server/fault/scenarios.h"
 
+#include <chrono>
+#include <cstring>
+#include <thread>
+
+#include "server/events/movement.h"
+#include "server/telemetry/logger.h"
+#include "server/world/zone.h"
+
 namespace wow {
 
 // --- F1: LatencySpikeFault ---
@@ -28,7 +36,10 @@ void LatencySpikeFault::deactivate() {
 bool LatencySpikeFault::is_active() const { return active_; }
 
 void LatencySpikeFault::on_tick(uint64_t /*current_tick*/, Zone* /*zone*/) {
-    // Stub — on_tick behavior implemented in Commit 4
+    if (!active_) {
+        return;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(delay_ms_));
 }
 
 FaultStatus LatencySpikeFault::status() const {
@@ -64,8 +75,26 @@ void SessionCrashFault::deactivate() {
 
 bool SessionCrashFault::is_active() const { return active_; }
 
-void SessionCrashFault::on_tick(uint64_t /*current_tick*/, Zone* /*zone*/) {
-    // Stub — on_tick behavior implemented in Commit 4
+void SessionCrashFault::on_tick(uint64_t /*current_tick*/, Zone* zone) {
+    if (!active_ || fired_ || zone == nullptr) {
+        return;
+    }
+    const auto& entities = zone->entities();
+    if (entities.empty()) {
+        return;
+    }
+    // Remove the first entity (unordered_map iteration order is stable per instance)
+    auto victim_id = entities.begin()->first;
+    zone->remove_entity(victim_id);
+    fired_ = true;
+
+    if (Logger::is_initialized()) {
+        Logger::instance().event("fault", "Session crashed by fault injection", {
+            {"fault_id", id()},
+            {"session_id", victim_id},
+            {"zone_id", zone->zone_id()}
+        });
+    }
 }
 
 FaultStatus SessionCrashFault::status() const {
@@ -104,8 +133,33 @@ void EventQueueFloodFault::deactivate() {
 
 bool EventQueueFloodFault::is_active() const { return active_; }
 
-void EventQueueFloodFault::on_tick(uint64_t /*current_tick*/, Zone* /*zone*/) {
-    // Stub — on_tick behavior implemented in Commit 4
+void EventQueueFloodFault::on_tick(uint64_t current_tick, Zone* zone) {
+    if (!active_ || zone == nullptr) {
+        return;
+    }
+    const auto& entities = zone->entities();
+    size_t total_events = entities.size() * multiplier_;
+
+    size_t i = 0;
+    for (const auto& [session_id, entity] : entities) {
+        for (uint32_t m = 0; m < multiplier_; ++m) {
+            // Deterministic position: no <random> header, MSVC-safe
+            float x = static_cast<float>((current_tick * 31 + i * 7 + session_id) % 1000);
+            float y = static_cast<float>((current_tick * 13 + i * 11 + session_id) % 1000);
+            float z = 0.0f;
+            zone->push_event(std::make_unique<MovementEvent>(
+                session_id, Position{x, y, z}));
+            ++i;
+        }
+    }
+
+    if (Logger::is_initialized()) {
+        Logger::instance().event("fault", "Event queue flooded", {
+            {"fault_id", id()},
+            {"zone_id", zone->zone_id()},
+            {"events_injected", total_events}
+        });
+    }
 }
 
 FaultStatus EventQueueFloodFault::status() const {
@@ -135,19 +189,41 @@ bool MemoryPressureFault::activate(const FaultConfig& config) {
     } else {
         megabytes_ = 64;
     }
-    // Stub — actual allocation implemented in Commit 4
+
+    // Allocate in 1MB chunks, filled with 0xAB to ensure OS commits pages
+    constexpr size_t kOneMB = 1024 * 1024;
+    buffers_.clear();
+    buffers_.reserve(megabytes_);
+    for (uint32_t i = 0; i < megabytes_; ++i) {
+        buffers_.emplace_back(kOneMB, static_cast<uint8_t>(0xAB));
+    }
+
+    if (Logger::is_initialized()) {
+        Logger::instance().event("fault", "Memory pressure applied", {
+            {"fault_id", id()},
+            {"megabytes", megabytes_},
+            {"bytes_allocated", bytes_allocated()}
+        });
+    }
     return true;
 }
 
 void MemoryPressureFault::deactivate() {
     active_ = false;
-    // Stub — actual deallocation implemented in Commit 4
+    buffers_.clear();
+    buffers_.shrink_to_fit();
+
+    if (Logger::is_initialized()) {
+        Logger::instance().event("fault", "Memory pressure released", {
+            {"fault_id", id()}
+        });
+    }
 }
 
 bool MemoryPressureFault::is_active() const { return active_; }
 
 void MemoryPressureFault::on_tick(uint64_t /*current_tick*/, Zone* /*zone*/) {
-    // Stub — on_tick behavior implemented in Commit 4
+    // Ambient fault — buffers held while active, nothing to do per tick
 }
 
 FaultStatus MemoryPressureFault::status() const {
@@ -161,6 +237,12 @@ FaultStatus MemoryPressureFault::status() const {
     return s;
 }
 
-size_t MemoryPressureFault::bytes_allocated() const { return 0; }
+size_t MemoryPressureFault::bytes_allocated() const {
+    size_t total = 0;
+    for (const auto& buf : buffers_) {
+        total += buf.size();
+    }
+    return total;
+}
 
 }  // namespace wow
