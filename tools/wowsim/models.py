@@ -230,3 +230,53 @@ class PipelineResult(BaseModel):
     stages: list[StageResult]
     outcome: Literal["promoted", "rolled_back", "aborted"]
     total_duration_seconds: float
+
+
+# ---------------------------------------------------------------------------
+# Benchmark Models
+# ---------------------------------------------------------------------------
+
+
+class PercentileStats(BaseModel):
+    """Percentile distribution of tick durations."""
+
+    p50_ms: float
+    p95_ms: float
+    p99_ms: float
+    jitter_ms: float
+
+
+class ScenarioResult(BaseModel):
+    """Result of one benchmark scenario (one client count level)."""
+
+    client_count: int
+    tick_health: TickHealth
+    percentiles: PercentileStats
+    throughput_actions_per_sec: float
+    passed: bool
+    message: str
+
+
+class BenchmarkConfig(BaseModel):
+    """Configuration for a benchmark run."""
+
+    game_host: str = "localhost"
+    game_port: int = 8080
+    log_file: str | None = None
+    client_counts: list[int] = [0, 10, 25, 50, 100]
+    duration_seconds: float = 10.0
+    actions_per_second: float = 2.0
+    settle_seconds: float = 2.0
+    max_avg_tick_ms: float = 50.0
+    max_p99_tick_ms: float = 100.0
+    max_overrun_pct: float = 5.0
+
+
+class BenchmarkResult(BaseModel):
+    """Complete benchmark run result."""
+
+    config: BenchmarkConfig
+    scenarios: list[ScenarioResult]
+    overall_passed: bool
+    summary_message: str
+    total_duration_seconds: float
