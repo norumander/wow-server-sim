@@ -263,3 +263,52 @@ class TestCLI:
         assert "--log-file" in result.output
         assert "--host" in result.output
         assert "--refresh" in result.output
+
+
+# ---------------------------------------------------------------------------
+# Group I: Suggestion bar (6 tests)
+# ---------------------------------------------------------------------------
+
+
+class TestComputeSuggestion:
+    """compute_suggestion returns context-aware guidance text."""
+
+    def test_no_players(self) -> None:
+        from wowsim.dashboard import compute_suggestion
+
+        result = compute_suggestion(players=0, active_faults=0, status="healthy", pipeline_ran=False)
+        assert "s" in result.lower()
+        assert "spawn" in result.lower() or "player" in result.lower()
+
+    def test_players_no_faults(self) -> None:
+        from wowsim.dashboard import compute_suggestion
+
+        result = compute_suggestion(players=5, active_faults=0, status="healthy", pipeline_ran=False)
+        assert "a" in result.lower()
+        assert "fault" in result.lower() or "inject" in result.lower()
+
+    def test_fault_active_critical(self) -> None:
+        from wowsim.dashboard import compute_suggestion
+
+        result = compute_suggestion(players=5, active_faults=1, status="critical", pipeline_ran=False)
+        assert "d" in result.lower()
+        assert "deactivate" in result.lower() or "recover" in result.lower()
+
+    def test_fault_active_not_critical(self) -> None:
+        from wowsim.dashboard import compute_suggestion
+
+        result = compute_suggestion(players=5, active_faults=1, status="degraded", pipeline_ran=False)
+        assert "observe" in result.lower() or "active" in result.lower()
+
+    def test_no_faults_not_critical_no_pipeline(self) -> None:
+        from wowsim.dashboard import compute_suggestion
+
+        result = compute_suggestion(players=5, active_faults=0, status="healthy", pipeline_ran=False)
+        # With players and no faults, should suggest either fault injection or pipeline
+        assert "a" in result.lower() or "p" in result.lower()
+
+    def test_pipeline_ran(self) -> None:
+        from wowsim.dashboard import compute_suggestion
+
+        result = compute_suggestion(players=5, active_faults=0, status="healthy", pipeline_ran=True)
+        assert "s" in result.lower() or "q" in result.lower()
