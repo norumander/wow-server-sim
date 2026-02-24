@@ -429,3 +429,26 @@ Tick ordering: `control.process_pending_commands()` → `registry.on_tick(tick)`
 - Consistent with EventQueue (ADR-009) and CommandQueue (ADR-017) patterns — three queues, one pattern
 - Session assignment happens at the start of the next tick after connection (max 50ms latency) — acceptable for a reliability demo
 - Zone assignment policy is trivially changeable (round-robin today, load-based tomorrow)
+
+---
+
+## ADR-023: Dashboard Data Flow — Worker Threads for Sync I/O, Native Async for Control
+
+**Date:** 2026-02-24
+**Status:** Accepted
+
+**Context:** The Textual TUI dashboard needs to display live server metrics (from JSONL log files and TCP health probes) alongside fault control (via the async ControlClient). Textual runs on an asyncio event loop, so blocking I/O would freeze the UI. Two data sources have different I/O characteristics: health data uses sync file I/O and sync TCP probes, while fault control uses the existing async `ControlClient`.
+
+**Decision:** Use a dual data-fetching strategy:
+
+1. **Health refresh** — `@work(thread=True)` runs sync functions (`read_recent_entries`, `compute_tick_health`, `check_server_reachable`, etc.) from `health_check.py` and `log_parser.py` in a Textual worker thread. Results are marshalled back to the main thread via `call_from_thread()` for UI updates.
+2. **Fault queries** — `@work(exclusive=True)` runs the async `ControlClient` directly on the Textual event loop. No thread needed since `ControlClient` was designed for async use (ADR-019).
+3. **Timestamp watermark** — `filter_new_entries()` tracks the last-seen entry timestamp to append only new entries to the scrolling `RichLog`, preventing duplicates without per-entry tracking.
+4. **Pure formatting functions** — All display formatting extracted as standalone functions (`format_status_bar`, `format_tick_panel`, `format_event_line`, `status_to_style`, `fault_action_label`) testable without any Textual dependency.
+
+**Consequences:**
+- Health refresh cannot block the UI — worker thread handles all sync I/O
+- Fault control reuses the async ControlClient designed in ADR-019 — no new protocol code
+- Pure formatting functions have 16 unit tests with no Textual dependency
+- Dashboard refresh interval is configurable (default 2s) via CLI `--refresh` option
+- Textual CSS provides clean separation of layout from logic

@@ -297,6 +297,20 @@ AUTHENTICATING + DISCONNECT           → DISCONNECTING
 - **CLI:** `wowsim spawn-clients --count 10 --duration 60 --host localhost --port 8080 --rate 2 --format text|json`
 - **Test strategy:** 18 pytest cases in 7 groups: models (3), traffic generation (3), action selection (2), single client lifecycle (3), multi-client spawning (3), formatting (2), CLI integration (2). `mock_game_server` fixture (ThreadingTCPServer on ephemeral port) in conftest.py
 
+### Monitoring Dashboard (`wowsim/dashboard.py`)
+- **Responsibility:** Live TUI dashboard displaying server health metrics, zone status, fault control, and scrolling event log with auto-refresh
+- **Framework:** Textual 8.0 TUI framework with CSS-based layout (`dashboard.tcss`)
+- **Widget tree:** `WoWDashboardApp(App)` → Header, StatusBar (Static), Horizontal(TickMetricsPanel (Static) + ZoneTable (DataTable)), FaultControlPanel (Static), EventLog (RichLog), Footer
+- **Data flow — dual strategy (ADR-023):**
+  - Health refresh: `@work(thread=True)` runs sync functions from `health_check.py` and `log_parser.py` in a worker thread. `call_from_thread()` marshals results back for UI updates
+  - Fault queries: `@work(exclusive=True)` runs async `ControlClient` directly on the Textual event loop
+- **Timestamp watermark:** `filter_new_entries()` tracks last-seen timestamp to append only new entries to the RichLog, preventing duplicates
+- **Pure formatting functions:** `format_status_bar`, `format_tick_panel`, `format_event_line`, `status_to_style`, `fault_action_label` — independently testable without Textual
+- **Key bindings:** `q` (quit), `r` (manual refresh), `a` (activate first inactive fault), `d` (deactivate first active fault), `x` (deactivate all)
+- **Configuration:** `DashboardConfig` (Pydantic v2) with log_file, host, port, control_port, refresh_interval
+- **CLI:** `wowsim dashboard --log-file <path> --host <host> --port <port> --control-port <port> --refresh <seconds>`
+- **Test strategy:** 16 pytest cases in 8 groups: status bar formatting (2), tick panel formatting (2), style mapping (1), event line formatting (2), fault label (2), entry filtering with watermark (3), config defaults/overrides (2), CLI integration (2)
+
 ## Concurrency Model
 
 **MVP (Three Threads):**
@@ -355,3 +369,4 @@ With `main.cpp` fully wired, tests can be extended with a real server subprocess
 - **Mark-and-Sweep:** Session cleanup with reconnection window
 - **Exception Guard:** Zone-level fault isolation
 - **Self-Registration:** Fault registry pattern
+- **Worker Thread + Watermark:** Dashboard sync I/O in worker thread, timestamp watermark for incremental event log updates (ADR-023)

@@ -7,6 +7,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- Monitoring dashboard (`wowsim.dashboard`): Textual TUI with auto-refreshing status bar, tick metrics panel, zone health DataTable, fault control panel, and scrolling event log. Worker-thread health refresh for non-blocking sync I/O, async fault queries via ControlClient, timestamp watermark for duplicate-free event log updates (ADR-023)
+- `DashboardConfig` Pydantic v2 model in `wowsim.dashboard` — configuration for log file path, server addresses, and refresh interval
+- `dashboard` CLI command: `wowsim dashboard --log-file <path> --host <host> --port <port> --control-port <port> --refresh <seconds>`. Replaces placeholder stub
+- Pure formatting functions in `wowsim.dashboard`: `format_status_bar`, `format_tick_panel`, `format_event_line`, `status_to_style`, `fault_action_label`, `filter_new_entries` — independently testable without Textual dependency
+- Dashboard key bindings: `q` (quit), `r` (manual refresh), `a` (activate fault), `d` (deactivate fault), `x` (deactivate all faults)
+- 16 pytest cases for dashboard covering formatting (9), entry filtering (3), config (2), CLI integration (2). Total: 110 Python tests passing
 - Full `main.cpp` wiring: all subsystems connected end-to-end — Logger, ZoneManager (Elwynn Forest + Hogger, Westfall + Defias Pillager), FaultRegistry (F1-F4), SessionEventQueue, ControlChannel (port 8081), GameServer (port 8080), GameLoop (20 Hz on main thread). Server binary now runs, accepts connections, assigns players to zones, processes game ticks, handles fault injection commands, and shuts down gracefully on Ctrl+C
 - `SessionEventQueue` (`wow::SessionEventQueue`): thread-safe queue bridging session lifecycle events (CONNECTED/DISCONNECTED) from GameServer's network thread to the game thread. Follows mutex + swap-drain pattern consistent with EventQueue and CommandQueue (ADR-022)
 - `GameServer::set_session_event_queue()`: non-owning pointer to SessionEventQueue for connect/disconnect notifications. Null-safe when no queue is set
