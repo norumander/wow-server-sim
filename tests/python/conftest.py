@@ -4,8 +4,11 @@ import json
 import socketserver
 import threading
 from datetime import datetime, timezone
+from pathlib import Path
 
 import pytest
+
+from wowsim.models import TelemetryEntry
 
 
 # --- Sample JSONL lines matching C++ telemetry schema ---
@@ -292,3 +295,91 @@ def mock_control_server():
     finally:
         server.shutdown()
         server.server_close()
+
+
+# --- Health check fixtures ---
+
+HEALTH_BASE_TS = "2026-02-24T10:00:00"
+
+
+@pytest.fixture()
+def health_log_entries() -> list[TelemetryEntry]:
+    """Parsed telemetry entries for health computation tests.
+
+    Includes: 5 game_loop ticks (1 overrun), 2 zone tick metrics,
+    1 zone error, 2 connections, 1 disconnection.
+    """
+    lines = [
+        # 5 game_loop tick metrics (tick 3 has overrun)
+        _make_line(
+            "metric", "game_loop", "Tick completed",
+            {"tick": 1, "duration_ms": 3.0, "overrun": False},
+            f"{HEALTH_BASE_TS}.000Z",
+        ),
+        _make_line(
+            "metric", "game_loop", "Tick completed",
+            {"tick": 2, "duration_ms": 4.0, "overrun": False},
+            f"{HEALTH_BASE_TS}.050Z",
+        ),
+        _make_line(
+            "metric", "game_loop", "Tick completed",
+            {"tick": 3, "duration_ms": 60.0, "overrun": True},
+            f"{HEALTH_BASE_TS}.100Z",
+        ),
+        _make_line(
+            "metric", "game_loop", "Tick completed",
+            {"tick": 4, "duration_ms": 3.5, "overrun": False},
+            f"{HEALTH_BASE_TS}.150Z",
+        ),
+        _make_line(
+            "metric", "game_loop", "Tick completed",
+            {"tick": 5, "duration_ms": 4.5, "overrun": False},
+            f"{HEALTH_BASE_TS}.200Z",
+        ),
+        # 2 zone tick metrics
+        _make_line(
+            "metric", "zone", "Zone tick completed",
+            {"zone_id": 1, "events_processed": 5, "duration_ms": 3.2},
+            f"{HEALTH_BASE_TS}.010Z",
+        ),
+        _make_line(
+            "metric", "zone", "Zone tick completed",
+            {"zone_id": 2, "events_processed": 3, "duration_ms": 2.8},
+            f"{HEALTH_BASE_TS}.020Z",
+        ),
+        # 1 zone error
+        _make_line(
+            "error", "zone", "Zone tick exception",
+            {"zone_id": 1, "error": "null pointer"},
+            f"{HEALTH_BASE_TS}.110Z",
+        ),
+        # 2 connections, 1 disconnection
+        _make_line(
+            "event", "game_server", "Connection accepted",
+            {"session_id": 1},
+            f"{HEALTH_BASE_TS}.001Z",
+        ),
+        _make_line(
+            "event", "game_server", "Connection accepted",
+            {"session_id": 2},
+            f"{HEALTH_BASE_TS}.002Z",
+        ),
+        _make_line(
+            "event", "game_server", "Client disconnected",
+            {"session_id": 1},
+            f"{HEALTH_BASE_TS}.250Z",
+        ),
+    ]
+    from wowsim.log_parser import parse_line
+
+    entries = [parse_line(line) for line in lines]
+    return [e for e in entries if e is not None]
+
+
+@pytest.fixture()
+def health_log_file(tmp_path: Path, health_log_entries: list[TelemetryEntry]) -> Path:
+    """Temp JSONL file containing health_log_entries."""
+    path = tmp_path / "health_telemetry.jsonl"
+    lines = [e.model_dump_json() for e in health_log_entries]
+    path.write_text("\n".join(lines) + "\n")
+    return path

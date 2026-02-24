@@ -172,3 +172,149 @@ class TestComputeTickHealthNoTicks:
         ]
         result = compute_tick_health(entries)
         assert result is None
+
+
+# ============================================================
+# Group C: Zone Health & Player Count (3 tests)
+# ============================================================
+
+from wowsim.health_check import compute_zone_health, estimate_player_count
+
+
+class TestComputeZoneHealthMultipleZones:
+    """Two zones produce correct per-zone stats."""
+
+    def test_multiple_zones(self, health_log_entries: list[TelemetryEntry]) -> None:
+        zones = compute_zone_health(health_log_entries)
+        assert len(zones) == 2
+        zone_map = {z.zone_id: z for z in zones}
+        assert 1 in zone_map
+        assert 2 in zone_map
+        assert zone_map[1].tick_count == 1
+        assert zone_map[2].tick_count == 1
+        assert zone_map[1].avg_tick_duration_ms == pytest.approx(3.2)
+        assert zone_map[2].avg_tick_duration_ms == pytest.approx(2.8)
+
+
+class TestComputeZoneHealthWithErrors:
+    """Zone exceptions produce correct error_count and CRASHED state."""
+
+    def test_zone_errors(self, health_log_entries: list[TelemetryEntry]) -> None:
+        zones = compute_zone_health(health_log_entries)
+        zone_map = {z.zone_id: z for z in zones}
+        # Zone 1 has 1 error → CRASHED
+        assert zone_map[1].error_count == 1
+        assert zone_map[1].state == "CRASHED"
+        # Zone 2 has 0 errors → ACTIVE
+        assert zone_map[2].error_count == 0
+        assert zone_map[2].state == "ACTIVE"
+
+
+class TestEstimatePlayerCount:
+    """Net connections - disconnections = player count."""
+
+    def test_player_count(self, health_log_entries: list[TelemetryEntry]) -> None:
+        # 2 connections, 1 disconnect → 1
+        count = estimate_player_count(health_log_entries)
+        assert count == 1
+
+
+# ============================================================
+# Group D: Status Determination (3 tests)
+# ============================================================
+
+from wowsim.health_check import determine_status
+
+
+class TestStatusHealthy:
+    """No anomalies, all zones ACTIVE → 'healthy'."""
+
+    def test_healthy(self) -> None:
+        zones = [
+            ZoneHealthSummary(
+                zone_id=1, state="ACTIVE", tick_count=10,
+                error_count=0, avg_tick_duration_ms=3.0,
+            ),
+        ]
+        status = determine_status(
+            tick=TickHealth(
+                total_ticks=100, avg_duration_ms=3.5, max_duration_ms=5.0,
+                min_duration_ms=2.0, overrun_count=0, overrun_pct=0.0,
+            ),
+            zones=zones,
+            anomalies=[],
+        )
+        assert status == "healthy"
+
+
+class TestStatusDegraded:
+    """Warning anomalies or DEGRADED zone → 'degraded'."""
+
+    def test_degraded_from_warning_anomaly(self) -> None:
+        anomalies = [
+            Anomaly(
+                type="latency_spike",
+                severity="warning",
+                timestamp=datetime(2026, 2, 24, tzinfo=timezone.utc),
+                message="Tick slow",
+            ),
+        ]
+        status = determine_status(tick=None, zones=[], anomalies=anomalies)
+        assert status == "degraded"
+
+    def test_degraded_from_overrun_pct(self) -> None:
+        tick = TickHealth(
+            total_ticks=100, avg_duration_ms=3.5, max_duration_ms=5.0,
+            min_duration_ms=2.0, overrun_count=15, overrun_pct=15.0,
+        )
+        status = determine_status(tick=tick, zones=[], anomalies=[])
+        assert status == "degraded"
+
+
+class TestStatusCritical:
+    """Critical anomaly or CRASHED zone → 'critical'."""
+
+    def test_critical_from_anomaly(self) -> None:
+        anomalies = [
+            Anomaly(
+                type="zone_crash",
+                severity="critical",
+                timestamp=datetime(2026, 2, 24, tzinfo=timezone.utc),
+                message="Zone 1 crashed",
+            ),
+        ]
+        status = determine_status(tick=None, zones=[], anomalies=anomalies)
+        assert status == "critical"
+
+    def test_critical_from_crashed_zone(self) -> None:
+        zones = [
+            ZoneHealthSummary(
+                zone_id=1, state="CRASHED", tick_count=10,
+                error_count=3, avg_tick_duration_ms=50.0,
+            ),
+        ]
+        status = determine_status(tick=None, zones=zones, anomalies=[])
+        assert status == "critical"
+
+
+# ============================================================
+# Group E: Server Reachability (2 tests)
+# ============================================================
+
+from wowsim.health_check import check_server_reachable
+
+
+class TestCheckServerReachableSuccess:
+    """Connecting to mock_control_server returns True."""
+
+    def test_reachable(self, mock_control_server: dict) -> None:
+        host = mock_control_server["host"]
+        port = mock_control_server["port"]
+        assert check_server_reachable(host, port) is True
+
+
+class TestCheckServerReachableFailure:
+    """Connecting to a closed port returns False."""
+
+    def test_unreachable(self) -> None:
+        assert check_server_reachable("127.0.0.1", 1, timeout=0.5) is False
