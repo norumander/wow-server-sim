@@ -335,3 +335,127 @@ class TestFormatPipelineResult:
         assert "PROMOTED" in text or "promoted" in text.lower()
         assert "build" in text.lower()
         assert "canary" in text.lower()
+
+
+# ============================================================
+# Group G: Orchestration with monkeypatch (3 tests)
+# ============================================================
+
+
+def _make_healthy_report():
+    """Helper: a healthy, reachable HealthReport."""
+    from datetime import datetime, timezone
+    from wowsim.models import HealthReport
+
+    return HealthReport(
+        timestamp=datetime(2026, 2, 24, tzinfo=timezone.utc),
+        status="healthy",
+        server_reachable=True,
+    )
+
+
+def _make_critical_report():
+    """Helper: a critical HealthReport."""
+    from datetime import datetime, timezone
+    from wowsim.models import HealthReport
+
+    return HealthReport(
+        timestamp=datetime(2026, 2, 24, tzinfo=timezone.utc),
+        status="critical",
+        server_reachable=True,
+    )
+
+
+def _make_unreachable_report():
+    """Helper: an unreachable HealthReport."""
+    from datetime import datetime, timezone
+    from wowsim.models import HealthReport
+
+    return HealthReport(
+        timestamp=datetime(2026, 2, 24, tzinfo=timezone.utc),
+        status="healthy",
+        server_reachable=False,
+    )
+
+
+class TestOrchestratorHappyPath:
+    """Pipeline promotes when all stages pass."""
+
+    def test_promote(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from wowsim import pipeline
+        from wowsim.models import PipelineConfig
+
+        report = _make_healthy_report()
+        monkeypatch.setattr(pipeline, "_get_health_report", lambda _cfg: report)
+        monkeypatch.setattr(pipeline, "_execute_deploy_action", lambda _cfg: None)
+
+        config = PipelineConfig(
+            fault_id="latency-spike",
+            action="activate",
+            canary_duration_seconds=0.1,
+            canary_poll_interval_seconds=0.05,
+        )
+        result = pipeline.run_pipeline(config)
+        assert result.outcome == "promoted"
+        stage_names = [s.stage for s in result.stages]
+        assert "build" in stage_names
+        assert "validate" in stage_names
+        assert "canary" in stage_names
+        assert "promote" in stage_names
+        assert all(s.passed for s in result.stages)
+
+
+class TestOrchestratorRollbackOnCritical:
+    """Pipeline rolls back when canary detects critical health."""
+
+    def test_rollback(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from wowsim import pipeline
+        from wowsim.models import PipelineConfig
+
+        healthy = _make_healthy_report()
+        critical = _make_critical_report()
+        call_count = {"n": 0}
+
+        def mock_health(_cfg: PipelineConfig) -> HealthReport:
+            call_count["n"] += 1
+            # First two calls (build + validate) healthy, canary polls critical
+            if call_count["n"] <= 2:
+                return healthy
+            return critical
+
+        monkeypatch.setattr(pipeline, "_get_health_report", mock_health)
+        monkeypatch.setattr(pipeline, "_execute_deploy_action", lambda _cfg: None)
+        monkeypatch.setattr(pipeline, "_execute_rollback", lambda _cfg: None)
+
+        config = PipelineConfig(
+            fault_id="latency-spike",
+            action="activate",
+            canary_duration_seconds=0.1,
+            canary_poll_interval_seconds=0.05,
+            rollback_on="critical",
+        )
+        result = pipeline.run_pipeline(config)
+        assert result.outcome == "rolled_back"
+        stage_names = [s.stage for s in result.stages]
+        assert "rollback" in stage_names
+
+
+class TestOrchestratorAbortOnBuildFail:
+    """Pipeline aborts when build preconditions fail."""
+
+    def test_abort(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from wowsim import pipeline
+        from wowsim.models import PipelineConfig
+
+        unreachable = _make_unreachable_report()
+        monkeypatch.setattr(pipeline, "_get_health_report", lambda _cfg: unreachable)
+
+        config = PipelineConfig(
+            fault_id="latency-spike",
+            action="activate",
+        )
+        result = pipeline.run_pipeline(config)
+        assert result.outcome == "aborted"
+        assert len(result.stages) == 1
+        assert result.stages[0].stage == "build"
+        assert result.stages[0].passed is False
