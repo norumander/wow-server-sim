@@ -1,5 +1,7 @@
 #include "server/connection.h"
 
+#include <string>
+
 #include "server/telemetry/logger.h"
 
 namespace wow {
@@ -13,12 +15,14 @@ Connection::Connection(asio::ip::tcp::socket socket, DisconnectCallback on_disco
 
 void Connection::start()
 {
-    // Stub — async read loop not yet implemented.
+    do_read();
 }
 
 void Connection::close()
 {
-    // Stub — graceful socket shutdown not yet implemented.
+    asio::error_code ec;
+    socket_.shutdown(asio::ip::tcp::socket::shutdown_both, ec);
+    socket_.close(ec);
 }
 
 uint64_t Connection::session_id() const
@@ -33,12 +37,40 @@ SessionState Connection::session_state() const
 
 std::string Connection::remote_endpoint_string() const
 {
-    return "stub";
+    asio::error_code ec;
+    auto ep = socket_.remote_endpoint(ec);
+    if (ec) {
+        return "<closed>";
+    }
+    return ep.address().to_string() + ":" + std::to_string(ep.port());
 }
 
 void Connection::do_read()
 {
-    // Stub — async read not yet implemented.
+    // Capture shared_ptr to prevent destruction while async op is pending.
+    auto self = shared_from_this();
+    socket_.async_read_some(
+        asio::buffer(read_buffer_),
+        [self](const asio::error_code& ec, std::size_t /*bytes_transferred*/) {
+            if (ec) {
+                // EOF or error — client disconnected.
+                // Transition session: CONNECTING + DISCONNECT → DESTROYED.
+                self->session_.transition(SessionEvent::DISCONNECT);
+
+                if (Logger::is_initialized()) {
+                    Logger::instance().event("game_server", "Client disconnected", {
+                        {"session_id", self->session_.session_id()},
+                    });
+                }
+
+                if (self->on_disconnect_) {
+                    self->on_disconnect_(self->session_.session_id());
+                }
+                return;
+            }
+            // Data received but discarded — read loop only detects disconnect.
+            self->do_read();
+        });
 }
 
 }  // namespace wow
