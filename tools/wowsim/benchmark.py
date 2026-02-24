@@ -9,7 +9,14 @@ from __future__ import annotations
 
 import math
 
-from wowsim.models import PercentileStats, TelemetryEntry
+from wowsim.models import (
+    BenchmarkConfig,
+    PercentileStats,
+    ScenarioResult,
+    SpawnResult,
+    TelemetryEntry,
+    TickHealth,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -50,4 +57,78 @@ def compute_percentiles(entries: list[TelemetryEntry]) -> PercentileStats | None
         p95_ms=_percentile(95),
         p99_ms=_percentile(99),
         jitter_ms=round(jitter, 6),
+    )
+
+
+def compute_throughput(spawn_result: SpawnResult) -> float:
+    """Compute actions per second from a spawn result.
+
+    Returns 0.0 if duration is zero to avoid division by zero.
+    """
+    if spawn_result.total_duration_seconds <= 0.0:
+        return 0.0
+    return spawn_result.total_actions_sent / spawn_result.total_duration_seconds
+
+
+def evaluate_scenario(
+    tick_health: TickHealth,
+    percentiles: PercentileStats,
+    throughput: float,
+    client_count: int,
+    config: BenchmarkConfig,
+) -> ScenarioResult:
+    """Evaluate a single benchmark scenario against thresholds.
+
+    Passes when avg <= max_avg, p99 <= max_p99, and overrun_pct <= max_overrun.
+    """
+    failures: list[str] = []
+
+    if tick_health.avg_duration_ms > config.max_avg_tick_ms:
+        failures.append(
+            f"avg {tick_health.avg_duration_ms:.1f}ms > {config.max_avg_tick_ms:.1f}ms"
+        )
+    if percentiles.p99_ms > config.max_p99_tick_ms:
+        failures.append(
+            f"p99 {percentiles.p99_ms:.1f}ms > {config.max_p99_tick_ms:.1f}ms"
+        )
+    if tick_health.overrun_pct > config.max_overrun_pct:
+        failures.append(
+            f"overrun {tick_health.overrun_pct:.1f}% > {config.max_overrun_pct:.1f}%"
+        )
+
+    passed = len(failures) == 0
+    message = "All thresholds met" if passed else "; ".join(failures)
+
+    return ScenarioResult(
+        client_count=client_count,
+        tick_health=tick_health,
+        percentiles=percentiles,
+        throughput_actions_per_sec=throughput,
+        passed=passed,
+        message=message,
+    )
+
+
+def evaluate_benchmark(
+    scenarios: list[ScenarioResult],
+) -> tuple[bool, str]:
+    """Evaluate overall benchmark result from scenario results.
+
+    All scenarios must pass. Summary identifies max passing client count
+    or the first failing count.
+    """
+    all_passed = all(s.passed for s in scenarios)
+    passing = [s for s in scenarios if s.passed]
+    failing = [s for s in scenarios if not s.passed]
+
+    if all_passed:
+        max_count = max(s.client_count for s in passing) if passing else 0
+        return (True, f"All scenarios passed (max {max_count} clients)")
+
+    first_fail = failing[0]
+    max_passing = max(s.client_count for s in passing) if passing else 0
+    return (
+        False,
+        f"Failed at {first_fail.client_count} clients "
+        f"(max passing: {max_passing})",
     )
