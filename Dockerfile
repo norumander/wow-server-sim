@@ -39,6 +39,9 @@ RUN python3 -m venv /app/.venv \
 
 ENV PATH="/app/.venv/bin:${PATH}"
 
+# Copy demo and support scripts
+COPY scripts/ /app/scripts/
+
 # Game port, control channel, telemetry UDP
 EXPOSE 8080 8081 9090/udp
 
