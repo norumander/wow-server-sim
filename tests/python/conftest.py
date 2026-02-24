@@ -383,3 +383,59 @@ def health_log_file(tmp_path: Path, health_log_entries: list[TelemetryEntry]) ->
     lines = [e.model_dump_json() for e in health_log_entries]
     path.write_text("\n".join(lines) + "\n")
     return path
+
+
+# --- Mock game server (for mock client tests) ---
+
+
+class _MockGameHandler(socketserver.StreamRequestHandler):
+    """Accepts connections and discards data (mirrors C++ server behavior)."""
+
+    def handle(self) -> None:
+        self.server.connection_count += 1  # type: ignore[attr-defined]
+        try:
+            while True:
+                data = self.rfile.read(4096)
+                if not data:
+                    break
+                self.server.bytes_received += len(data)  # type: ignore[attr-defined]
+        except Exception:
+            pass
+        finally:
+            self.server.disconnection_count += 1  # type: ignore[attr-defined]
+
+
+class _MockGameServer(socketserver.ThreadingTCPServer):
+    """Threading TCP server that accepts and discards data like the C++ server."""
+
+    allow_reuse_address = True
+
+    def __init__(self) -> None:
+        self.connection_count: int = 0
+        self.disconnection_count: int = 0
+        self.bytes_received: int = 0
+        super().__init__(("127.0.0.1", 0), _MockGameHandler)
+
+
+@pytest.fixture()
+def mock_game_server():
+    """TCP server on an ephemeral port that mimics the game server.
+
+    Yields a dict with:
+        host:   "127.0.0.1"
+        port:   OS-assigned ephemeral port
+        server: the underlying ThreadingTCPServer
+    """
+    server = _MockGameServer()
+    host, port = server.server_address
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield {
+            "host": host,
+            "port": port,
+            "server": server,
+        }
+    finally:
+        server.shutdown()
+        server.server_close()

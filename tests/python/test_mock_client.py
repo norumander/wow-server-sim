@@ -144,3 +144,99 @@ class TestActionSelection:
         assert abs(counts["movement"] / n - 0.50) < 0.15
         assert abs(counts["spell_cast"] / n - 0.30) < 0.15
         assert abs(counts["combat"] / n - 0.20) < 0.15
+
+
+# ---------------------------------------------------------------------------
+# Group D: Single Client Lifecycle
+# ---------------------------------------------------------------------------
+
+import asyncio
+import time
+
+from wowsim.mock_client import MockGameClient
+
+
+class TestSingleClientLifecycle:
+    """Verify individual mock client connect, send, and run loop."""
+
+    def test_mock_client_connects(self, mock_game_server: dict) -> None:
+        host, port = mock_game_server["host"], mock_game_server["port"]
+        server = mock_game_server["server"]
+
+        async def _test() -> None:
+            async with MockGameClient(client_id=0, host=host, port=port) as client:
+                assert client.connected
+            # Give server time to register the connection
+            await asyncio.sleep(0.05)
+
+        asyncio.run(_test())
+        assert server.connection_count >= 1
+
+    def test_mock_client_sends_actions(self, mock_game_server: dict) -> None:
+        host, port = mock_game_server["host"], mock_game_server["port"]
+        server = mock_game_server["server"]
+
+        async def _test() -> None:
+            async with MockGameClient(client_id=0, host=host, port=port) as client:
+                await client.send_action()
+                await client.send_action()
+                await asyncio.sleep(0.05)
+
+        asyncio.run(_test())
+        assert server.bytes_received > 0
+
+    def test_mock_client_run_loop(self, mock_game_server: dict) -> None:
+        host, port = mock_game_server["host"], mock_game_server["port"]
+        cfg = ClientConfig(
+            host=host, port=port, actions_per_second=20.0, duration_seconds=0.5
+        )
+
+        async def _test() -> ClientResult:
+            client = MockGameClient(client_id=0, host=cfg.host, port=cfg.port)
+            return await client.run(cfg)
+
+        result = asyncio.run(_test())
+        assert result.connected is True
+        assert result.actions_sent >= 1
+        assert result.error is None
+
+
+# ---------------------------------------------------------------------------
+# Group E: Multi-Client Spawning
+# ---------------------------------------------------------------------------
+
+from wowsim.mock_client import spawn_clients
+
+
+class TestMultiClientSpawning:
+    """Verify concurrent client spawning and failure handling."""
+
+    def test_spawn_clients_all_connect(self, mock_game_server: dict) -> None:
+        host, port = mock_game_server["host"], mock_game_server["port"]
+        cfg = ClientConfig(
+            host=host, port=port, actions_per_second=10.0, duration_seconds=0.5
+        )
+        result = asyncio.run(spawn_clients(cfg, count=5))
+        assert result.total_clients == 5
+        assert result.successful_connections == 5
+        assert result.failed_connections == 0
+
+    def test_spawn_clients_connection_failure(self) -> None:
+        cfg = ClientConfig(
+            host="127.0.0.1", port=1, actions_per_second=1.0, duration_seconds=0.5
+        )
+        result = asyncio.run(spawn_clients(cfg, count=3))
+        assert result.total_clients == 3
+        assert result.failed_connections == 3
+        assert result.successful_connections == 0
+        for client in result.clients:
+            assert client.error is not None
+
+    def test_spawn_clients_server_receives_data(self, mock_game_server: dict) -> None:
+        host, port = mock_game_server["host"], mock_game_server["port"]
+        server = mock_game_server["server"]
+        cfg = ClientConfig(
+            host=host, port=port, actions_per_second=20.0, duration_seconds=0.5
+        )
+        asyncio.run(spawn_clients(cfg, count=10))
+        assert server.bytes_received > 0
