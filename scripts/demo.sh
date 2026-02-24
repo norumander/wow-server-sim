@@ -51,6 +51,8 @@ elif [ -f "$PROJECT_ROOT/build/wow-server-sim.exe" ]; then
     SERVER_BIN="$PROJECT_ROOT/build/wow-server-sim.exe"
 elif [ -f "$PROJECT_ROOT/build/wow-server-sim" ]; then
     SERVER_BIN="$PROJECT_ROOT/build/wow-server-sim"
+elif [ -f "$PROJECT_ROOT/wow-server-sim" ]; then
+    SERVER_BIN="$PROJECT_ROOT/wow-server-sim"
 else
     echo "ERROR: Server binary not found. Build first: bash scripts/build.sh"
     exit 1
