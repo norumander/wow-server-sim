@@ -7,6 +7,11 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- Structured JSON telemetry logger (`wow::Logger` singleton) with configurable sinks (file, stdout, custom ostream), ISO 8601 timestamps with millisecond precision, and thread-safe writes
+- Logger convenience API: `metric()`, `event()`, `health()`, `error()` wrappers with optional structured `data` payload
+- 28 GoogleTest cases for telemetry logger covering schema compliance, type mapping, data handling, multi-line output, file I/O, and concurrent writes
+- Server startup/shutdown telemetry events in `main.cpp`
+- Cross-platform build support: MSVC (`/W4 /WX`) alongside GCC/Clang (`-Wall -Wextra -Werror`), conditional pthread linking
 - Project scaffolding: directory structure, CMake build system, git initialization
 - Root `CMakeLists.txt` with FetchContent for Asio, nlohmann/json, GoogleTest
 - `src/server/main.cpp` — compilable server stub

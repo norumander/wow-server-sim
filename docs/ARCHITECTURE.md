@@ -84,10 +84,15 @@ States: `CONNECTING → AUTHENTICATING → IN_WORLD → TRANSFERRING → DISCONN
 
 Implemented as a transition table — central table of `{from_state, event, to_state, action}` tuples. All transitions flow through one `transition()` function with telemetry logging. Invalid transitions are rejected and logged.
 
-### Telemetry
-- **Format:** JSON Lines with schema versioning (`"v": 1`, `"type"` field)
-- **Transport:** Log file (durable source of truth) + UDP broadcast (real-time feed)
-- **Types:** `"metric"`, `"event"`, `"health"`, `"error"`
+### Telemetry (`src/server/telemetry/logger.h`)
+- **Implementation:** `wow::Logger` singleton, initialized via `Logger::initialize(config)`, accessed via `Logger::instance()`
+- **Format:** JSON Lines with schema versioning (`"v": 1`). Each line is a self-contained JSON object with fields: `v`, `timestamp`, `type`, `component`, `message`, and optional `data`
+- **Timestamp:** ISO 8601 with millisecond precision (`YYYY-MM-DDTHH:MM:SS.mmmZ`), UTC via `gmtime_r`/`gmtime_s`
+- **Types:** `"metric"`, `"event"`, `"health"`, `"error"` — mapped from `wow::LogType` enum
+- **Sinks:** Configurable via `LoggerConfig` — file (append mode, flushed per line for crash durability), stdout (Docker-friendly), custom `std::ostream*` (test injection). UDP broadcast deferred until networking is in place (ADR-004)
+- **Thread safety:** `std::mutex` guards sink writes; `format_entry()` runs lock-free (reads immutable config, uses thread-safe time functions)
+- **Convenience API:** `metric()`, `event()`, `health()`, `error()` wrappers delegate to `log()` with the appropriate `LogType`
+- **Test strategy:** 28 GoogleTest cases using `std::ostringstream` as custom sink — covers schema compliance, type mapping, data handling, multi-line output, file I/O, and concurrent writes
 
 ### Control Channel
 - **Protocol:** TCP with newline-delimited JSON
