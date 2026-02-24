@@ -248,3 +248,63 @@ class TestNotConnectedRaises:
                 await client.activate("latency-spike")
 
         asyncio.run(_test())
+
+
+# ---------------------------------------------------------------------------
+# Group E: CLI integration
+# ---------------------------------------------------------------------------
+
+
+from click.testing import CliRunner
+
+from wowsim.cli import main as cli_main
+
+
+class TestCLIActivateSuccess:
+    """CliRunner invokes 'inject-fault activate', checks exit_code=0."""
+
+    def test_activate_output(self, mock_control_server: dict) -> None:
+        port = mock_control_server["port"]
+        runner = CliRunner()
+        result = runner.invoke(
+            cli_main,
+            [
+                "inject-fault",
+                "activate",
+                "latency-spike",
+                "--port",
+                str(port),
+                "--delay-ms",
+                "200",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        assert "latency-spike" in result.output
+        assert "activated" in result.output.lower() or "success" in result.output.lower()
+
+
+class TestCLIListShowsFaults:
+    """CliRunner invokes 'inject-fault list', output contains fault IDs."""
+
+    def test_list_output(self, mock_control_server: dict) -> None:
+        port = mock_control_server["port"]
+        runner = CliRunner()
+        result = runner.invoke(
+            cli_main, ["inject-fault", "list", "--port", str(port)]
+        )
+        assert result.exit_code == 0, result.output
+        assert "latency-spike" in result.output
+        assert "memory-pressure" in result.output
+
+
+class TestCLIConnectionRefusedError:
+    """CliRunner with bad port shows error message."""
+
+    def test_connection_error(self) -> None:
+        runner = CliRunner()
+        result = runner.invoke(
+            cli_main,
+            ["inject-fault", "list", "--port", "1"],
+        )
+        assert result.exit_code != 0
+        assert "error" in result.output.lower() or result.exception is not None
