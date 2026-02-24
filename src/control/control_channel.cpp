@@ -10,22 +10,28 @@ namespace wow {
 
 void CommandQueue::push(ControlCommand cmd)
 {
-    (void)cmd;
+    std::lock_guard<std::mutex> lock(mutex_);
+    commands_.push_back(std::move(cmd));
 }
 
 std::vector<ControlCommand> CommandQueue::drain()
 {
-    return {};
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::vector<ControlCommand> result;
+    result.swap(commands_);
+    return result;
 }
 
 size_t CommandQueue::size() const
 {
-    return 0;
+    std::lock_guard<std::mutex> lock(mutex_);
+    return commands_.size();
 }
 
 bool CommandQueue::empty() const
 {
-    return true;
+    std::lock_guard<std::mutex> lock(mutex_);
+    return commands_.empty();
 }
 
 // ---------------------------------------------------------------------------
