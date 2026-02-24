@@ -359,3 +359,28 @@ Tick ordering: `control.process_pending_commands()` → `registry.on_tick(tick)`
 - Mock server fixture enables fast, reliable unit tests without a running C++ server
 - Duration parsing abstracts the tick-rate constant (20 Hz) from operators
 - 20 pytest cases cover models, parsing, client commands, error handling, and CLI integration
+
+---
+
+## ADR-020: Health Check Reporter — Log-Based Analysis with Module Reuse
+
+**Date:** 2026-02-24
+**Status:** Accepted
+
+**Context:** Step 14 needs a health check reporter that provides periodic server health summaries including player counts, tick rate stability, zone health, and anomaly detection. The C++ server already emits rich structured telemetry (JSONL), and the log parser (Step 12) and fault trigger client (Step 13) provide reusable analysis and control channel capabilities.
+
+**Decision:**
+1. **Log-based analysis, no C++ changes.** All health data is already in the telemetry log: tick metrics (game_loop), zone metrics/errors (zone), connection events (game_server). No new server endpoints or telemetry types needed.
+2. **Pure computation functions** operating on `list[TelemetryEntry]`: `compute_tick_health()`, `compute_zone_health()`, `estimate_player_count()`, `determine_status()`. Separating computation from I/O enables comprehensive unit testing without network or file dependencies.
+3. **Reuse existing modules:** `log_parser.parse_line()` for entry parsing, `log_parser.detect_anomalies()` for anomaly detection, `fault_trigger.list_all_faults()` for active fault status. No logic duplication.
+4. **Three new Pydantic models** in `wowsim.models`: `TickHealth` (tick rate stats), `ZoneHealthSummary` (per-zone health), `HealthReport` (complete report). `HealthReport` composes `Anomaly` and `FaultInfo` from existing models.
+5. **Three-tier status determination:** `critical` (any critical anomaly or CRASHED zone), `degraded` (warning anomalies, DEGRADED zone, or >10% overruns), `healthy` (otherwise).
+6. **CLI with watch mode:** `wowsim health --log-file <path>` with `--watch`/`--interval` for continuous monitoring, `--format json` for machine-readable output, `--no-faults` to skip control channel queries.
+
+**Consequences:**
+- Zero C++ changes — health reporter is purely additive Python tooling
+- Pure function core is trivially testable (20 pytest cases)
+- Module reuse validates the shared model architecture from ADR-018
+- Watch mode provides live monitoring without a full dashboard (useful before Step 17)
+- `--format json` output enables piping to external monitoring tools
+- `build_health_report()` orchestrator designed for reuse by the dashboard (Step 17)

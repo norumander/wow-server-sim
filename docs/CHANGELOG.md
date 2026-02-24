@@ -7,6 +7,11 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- Health check reporter (`wowsim.health_check`): aggregates server health from telemetry logs with pure computation functions for tick rate stats, zone health, player count estimation, and three-tier status determination (healthy/degraded/critical). Reuses `log_parser` anomaly detection and `fault_trigger` fault status queries (ADR-020)
+- `TickHealth`, `ZoneHealthSummary`, `HealthReport` Pydantic v2 models in `wowsim.models` — composing existing `Anomaly` and `FaultInfo` models for complete health snapshots
+- `health` CLI command: `wowsim health --log-file <path>` with `--watch`/`--interval` for continuous monitoring, `--format json|text` for output format, `--no-faults` to skip control channel queries, `--host`/`--port`/`--control-port` for server addresses
+- Health check test fixtures (`health_log_entries`, `health_log_file`) in `tests/python/conftest.py` — 11 telemetry entries covering ticks, zones, errors, connections, and disconnections
+- 20 pytest cases for health check covering models (3), tick health (3), zone health and player count (3), status determination (5), reachability (2), report building and formatting (2), CLI integration (2)
 - Fault trigger client (`wowsim.fault_trigger`): async TCP client (`ControlClient`) for the C++ control channel with sync wrappers for CLI use. Pydantic v2 models for the control channel protocol (5 request types, `FaultInfo`, `ControlResponse`). Duration parsing (`5s` → 100 ticks, `100t` → 100 ticks). Formatting helpers for fault status display (ADR-019)
 - `inject-fault` CLI subcommand group: `wowsim inject-fault activate FAULT_ID [--delay-ms, --megabytes, --multiplier, --duration, --zone]`, `deactivate FAULT_ID`, `deactivate-all`, `status FAULT_ID`, `list`. Group-level `--host`/`--port` options (default localhost:8081)
 - Mock TCP control server fixture in `tests/python/conftest.py`: threading-based, ephemeral port, canned responses by command type, records received requests

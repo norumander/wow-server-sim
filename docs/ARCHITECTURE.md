@@ -262,6 +262,22 @@ AUTHENTICATING + DISCONNECT           → DISCONNECTING
 - **Reuse:** Async `ControlClient` designed for direct use by the Textual dashboard (Step 17) without blocking the event loop
 - **Test strategy:** 20 pytest cases in 5 groups: models (3+2), duration parsing (2+3), client commands (4), error handling (3), CLI integration (3). Mock TCP server fixture in conftest.py (threading-based, ephemeral port, canned responses)
 
+### Health Check Reporter (`wowsim/health_check.py`)
+- **Responsibility:** Aggregate server health from telemetry logs and present periodic health summaries
+- **Data source:** Reads JSONL telemetry log file (tail-based, last 500 lines by default). No C++ changes needed — all health data is already emitted by the server
+- **Pure computation core:** Four stateless functions operating on `list[TelemetryEntry]`:
+  - `compute_tick_health()` — extracts tick rate stats (avg/max/min duration, overrun count/percentage) from `game_loop` "Tick completed" metrics
+  - `compute_zone_health()` — groups zone tick metrics and errors by zone_id, determines state (ACTIVE/CRASHED)
+  - `estimate_player_count()` — net "Connection accepted" minus "Client disconnected" events
+  - `determine_status()` — three-tier evaluation: critical (critical anomalies or CRASHED zones), degraded (warnings, DEGRADED zones, >10% overruns), healthy (otherwise)
+- **Module reuse:** `log_parser.parse_line()` for entry parsing, `log_parser.detect_anomalies()` for anomaly detection, `fault_trigger.list_all_faults()` for active fault status (ADR-020)
+- **I/O helpers:** `check_server_reachable()` TCP connect probe, `read_recent_entries()` tail-based log reader
+- **Orchestration:** `build_health_report()` composes all data sources into a `HealthReport` model. Designed for reuse by the dashboard (Step 17)
+- **Formatting:** `format_health_report()` produces human-readable multi-line output with status, tick rate, zones, players, faults, and anomalies
+- **Models:** `TickHealth`, `ZoneHealthSummary`, `HealthReport` (Pydantic v2) in `wowsim.models`. `HealthReport` composes existing `Anomaly` and `FaultInfo` models
+- **CLI:** `wowsim health --log-file <path>` with `--watch`/`--interval` for continuous monitoring, `--format json|text`, `--no-faults` to skip control channel, `--host`/`--port`/`--control-port` for server addresses
+- **Test strategy:** 20 pytest cases in 7 groups: health models (3), tick health computation (3), zone health and player count (3), status determination (3+2), server reachability (2), report building and formatting (2), CLI integration (2)
+
 ## Concurrency Model
 
 **MVP (Three Threads):**
