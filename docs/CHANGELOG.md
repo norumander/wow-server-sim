@@ -7,6 +7,15 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- Zone isolation system (`wow::Zone`, `wow::ZoneManager`): self-contained processing units with per-zone entity maps, event queues, and tick pipelines (Movement → SpellCast → Combat). Exception guard wraps each zone's tick in try/catch for crash isolation between zones
+- Zone state recovery arc: CRASHED → DEGRADED → ACTIVE on successive successful ticks, visible in telemetry for monitoring dashboard
+- Zone session management: `assign_session`/`remove_session`/`transfer_session` with entity state preservation (position, cast, combat) during zone transfers via `unordered_map::extract()`
+- ZoneManager event routing: two-stage model (intake → per-zone queues) with session-to-zone lookup. Events for unassigned sessions discarded with telemetry warning
+- ZoneManager tick orchestration: sequential tick-all with per-zone error isolation — crashed zone does not affect other zones
+- Pre/post tick hooks on Zone for fault injection (forward-compatible with Step 10)
+- `ZoneTickResult` and `ZoneManagerTickResult` structs for rich per-tick telemetry
+- `ZoneHealth` snapshot struct for monitoring (state, total_ticks, error_count, entity_count, queue_depth, last_tick_duration_ms)
+- 30 GoogleTest cases for zone system covering construction (2), entity management (4), event delivery (2), tick pipeline (4), exception guard (4), telemetry (2), zone manager lifecycle (2), session assignment (3), session transfer (2), event routing (3), tick-all and crash isolation (2)
 - Combat system (`wow::CombatEvent`, `wow::CombatProcessor`): damage calculation with armor (physical) and resistance (magical) mitigation clamped to 75%, inline death check on zero health, and structured telemetry for damage dealt and entity killed events
 - Threat table tracking: damage dealt = threat generated (per ADR-012), additive accumulation across attacks, dead entity cleanup from all threat tables at end of tick
 - NPC auto-attack: living NPCs with `base_attack_damage > 0` attack the highest-threat living target each tick, creating the classic boss-fight loop (tank/DPS threat management)

@@ -132,25 +132,41 @@ The WoW Server Simulator consists of a C++17 game server and a Python tooling su
 - **Position struct:** `wow::Position` with `operator==`, `operator!=`, and `distance()` free function (Euclidean distance)
 - **CastState struct:** Per-entity spell casting state with `is_casting`, `spell_id`, `cast_ticks_remaining`, `gcd_expires_tick`, and `moved_this_tick` flag. Accessed via mutable/const `cast_state()` accessors
 - **CombatState struct:** Per-entity combat state with `health` (int32_t, default 100), `max_health`, `armor` (physical mitigation, 0.0–0.75), `resistance` (magical mitigation, 0.0–0.75), `is_alive`, `base_attack_damage` (NPC auto-attack, 0 for players), and `threat_table` (`unordered_map<uint64_t, float>`). Accessed via mutable/const `combat_state()` accessors
-- **Entity map:** `std::unordered_map<uint64_t, Entity>` owned by the game thread. Not mutex-protected (single-owner design)
+- **Entity map:** `std::unordered_map<uint64_t, Entity>` owned per-zone (each Zone owns its entity map). Not mutex-protected (single-owner design). Zone transfers use `Zone::take_entity()` → `Zone::add_entity()` to move entities between zones while preserving state
 - **Test strategy:** 3 GoogleTest cases for entity basics + 3 for CastState + 3 for CombatState/EntityType
 
-### Zone (Self-Contained Processing Unit)
-- **Responsibility:** Owns its session registry, entity list, event queue, tick pipeline
-- **Isolation:** Exception guard around `zone.tick()` — crash in one zone cannot propagate
-- **Health:** Reports metrics after each tick (duration, event backlog, error count)
+### Zone — Self-Contained Processing Unit (`src/server/world/zone.h`)
+- **Implementation:** `wow::Zone` class with `wow::ZoneConfig` (zone_id, name), `wow::ZoneState` enum (`ACTIVE`, `DEGRADED`, `CRASHED`), per-zone `wow::EventQueue`, and owned processor instances (`MovementProcessor`, `SpellCastProcessor`, `CombatProcessor`)
+- **Type aliases:** `wow::ZoneId` (`uint32_t`), `wow::kNoZone` (`0`) sentinel value
+- **Entity ownership:** Each Zone owns its `std::unordered_map<uint64_t, Entity>`. `add_entity()`, `remove_entity()`, `has_entity()`, `entity_count()`, `entities()` for management. `take_entity()` uses `unordered_map::extract()` + move for zero-copy zone transfers preserving position, cast, and combat state
+- **Event delivery:** `push_event()` delegates to thread-safe `EventQueue`. `event_queue_depth()` for telemetry. Two-stage model per ADR-009: global intake → `ZoneManager::route_events()` → per-zone queues
+- **Tick pipeline:** `tick(uint64_t current_tick)` drains queue, runs pre_tick_hook → Movement → SpellCast → Combat → post_tick_hook. Returns `ZoneTickResult` with events_processed, entities_moved, spell_result, combat_result, duration_ms, had_error, error_message
+- **Exception guard:** Entire tick wrapped in `try/catch`. `std::exception` and unknown exceptions both caught, logged, and reported in `ZoneTickResult`. Zone state transitions to CRASHED on exception
+- **State recovery:** CRASHED → DEGRADED → ACTIVE on successive successful ticks, visible in telemetry for monitoring dashboard
+- **Fault injection hooks:** `set_pre_tick_hook()`/`set_post_tick_hook()` accept `std::function<void()>`. Map to `FaultPreTickPhase`/`FaultPostTickPhase` from ADR-009. Used by Step 10 fault injection framework
+- **Health:** `health()` returns `ZoneHealth` snapshot (zone_id, state, total_ticks, error_count, entity_count, event_queue_depth, last_tick_duration_ms)
+- **Telemetry:** Emits `"Zone tick completed"` metric (with zone_id, events_processed, duration_ms) on success, `"Zone tick exception"` error (with zone_id, error message) on failure. Guarded by `Logger::is_initialized()`
+- **Test strategy:** 18 GoogleTest cases in 6 groups: construction (2), entity management (4), event delivery (2), tick pipeline (4), exception guard (4), telemetry (2)
+
+### ZoneManager — Hub-and-Spoke Coordinator (`src/server/world/zone_manager.h`)
+- **Implementation:** `wow::ZoneManager` class owning all `Zone` instances via `unordered_map<ZoneId, unique_ptr<Zone>>`. Maintains `session_id → zone_id` mapping for event routing and session lifecycle
+- **Zone lifecycle:** `create_zone(config)` returns zone_id. `get_zone(id)` returns pointer (nullptr if not found). `zone_count()` for introspection
+- **Session assignment:** `assign_session(session_id, zone_id)` creates an `Entity` in the target zone and records the mapping. Fails if zone doesn't exist or session already assigned. `remove_session(session_id)` removes entity from zone and clears mapping
+- **Session transfer:** `transfer_session(session_id, target_zone_id)` extracts entity from source zone via `take_entity()`, adds to target zone. Preserves entity state (position, combat, cast). Fails gracefully if source/target zone missing
+- **Event routing:** `route_events(vector<unique_ptr<GameEvent>>&)` looks up each event's `session_id()` in session-zone map, pushes to target zone's queue. Events for unassigned sessions logged and discarded (natural cross-zone isolation per ADR-008)
+- **Tick orchestration:** `tick_all(current_tick)` ticks all zones sequentially (MVP). Returns `ZoneManagerTickResult` with zones_ticked, total_events, zones_with_errors, and per-zone results. Per-zone exception guard ensures crashed zone does not affect others
+- **Test strategy:** 12 GoogleTest cases in 5 groups: zone lifecycle (2), session assignment (3), session transfer (2), event routing (3), tick-all and crash isolation (2)
 
 ### Tick Pipeline (Per Zone, Per Tick)
 ```
-FaultPreTickPhase       ← tick-scoped fault interceptors
-DrainIntakePhase        ← distribute events from intake → zone queue
-MovementPhase           ← process position updates, cancel casts
-SpellCastPhase          ← advance cast timers, resolve completions
-CombatPhase             ← calculate damage (armor/resistance), apply
-ThreatUpdatePhase       ← update threat tables, resolve retargets
-SessionSweepPhase       ← mark-and-sweep disconnected sessions
-TelemetryEmitPhase      ← emit zone health metrics (file + UDP)
-FaultPostTickPhase      ← tick-scoped fault interceptors
+FaultPreTickPhase       ← pre_tick_hook (fault injection point)
+DrainIntakePhase        ← event_queue_.drain() → events vector
+MovementPhase           ← MovementProcessor::process() — position updates, set moved_this_tick
+SpellCastPhase          ← SpellCastProcessor::process() — cancel/interrupt/advance/start/clear
+CombatPhase             ← CombatProcessor::process() — damage, threat, NPC auto-attack, cleanup
+FaultPostTickPhase      ← post_tick_hook (fault injection point)
+StateRecoveryPhase      ← CRASHED → DEGRADED → ACTIVE on success
+TelemetryEmitPhase      ← emit zone tick completed metric
 ```
 
 ### Session State Machine (`src/server/session.h`)
