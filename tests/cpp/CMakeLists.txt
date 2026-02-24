@@ -9,6 +9,7 @@ add_executable(unit_tests
     unit/test_movement.cpp
     unit/test_spellcast.cpp
     unit/test_combat.cpp
+    unit/test_zone.cpp
     ${CMAKE_SOURCE_DIR}/src/server/telemetry/logger.cpp
     ${CMAKE_SOURCE_DIR}/src/server/game_loop.cpp
     ${CMAKE_SOURCE_DIR}/src/server/session.cpp
@@ -20,6 +21,7 @@ add_executable(unit_tests
     ${CMAKE_SOURCE_DIR}/src/server/events/combat.cpp
     ${CMAKE_SOURCE_DIR}/src/server/events/event_queue.cpp
     ${CMAKE_SOURCE_DIR}/src/server/world/entity.cpp
+    ${CMAKE_SOURCE_DIR}/src/server/world/zone.cpp
 )
 target_link_libraries(unit_tests
     PRIVATE
