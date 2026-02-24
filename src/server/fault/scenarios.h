@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -103,6 +104,34 @@ private:
     uint64_t ticks_elapsed_ = 0;
     uint32_t megabytes_ = 64;
     std::vector<std::vector<uint8_t>> buffers_;
+};
+
+/// F5: Cascading Zone Failure — crashes source zone, then floods target zone.
+///
+/// Multi-phase fault: throws std::runtime_error in the source zone (crashing it
+/// via the zone exception guard), then injects flood_multiplier * entity_count
+/// synthetic MovementEvents in the target zone on subsequent ticks.
+class CascadingZoneFailureFault : public Fault {
+public:
+    FaultId id() const override;
+    std::string description() const override;
+    FaultMode mode() const override;
+    bool activate(const FaultConfig& config) override;
+    void deactivate() override;
+    bool is_active() const override;
+    void on_tick(uint64_t current_tick, Zone* zone) override;
+    FaultStatus status() const override;
+
+private:
+    bool active_ = false;
+    FaultConfig config_;
+    uint64_t activations_ = 0;
+    uint64_t ticks_elapsed_ = 0;
+    uint32_t source_zone_ = 1;
+    uint32_t target_zone_ = 2;
+    uint32_t flood_multiplier_ = 10;
+    bool fired_crash_ = false;
+    bool source_crashed_ = false;
 };
 
 }  // namespace wow

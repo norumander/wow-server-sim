@@ -2,6 +2,7 @@
 
 #include <chrono>
 #include <cstring>
+#include <stdexcept>
 #include <thread>
 
 #include "server/events/movement.h"
@@ -243,6 +244,103 @@ size_t MemoryPressureFault::bytes_allocated() const {
         total += buf.size();
     }
     return total;
+}
+
+// --- F5: CascadingZoneFailureFault ---
+
+FaultId CascadingZoneFailureFault::id() const { return "cascading-zone-failure"; }
+std::string CascadingZoneFailureFault::description() const { return "Crash source zone, flood target zone with events"; }
+FaultMode CascadingZoneFailureFault::mode() const { return FaultMode::TICK_SCOPED; }
+
+bool CascadingZoneFailureFault::activate(const FaultConfig& config) {
+    config_ = config;
+    active_ = true;
+    fired_crash_ = false;
+    source_crashed_ = false;
+    ticks_elapsed_ = 0;
+    ++activations_;
+    if (config.params.contains("source_zone")) {
+        source_zone_ = config.params["source_zone"].get<uint32_t>();
+    } else {
+        source_zone_ = 1;
+    }
+    if (config.params.contains("target_zone")) {
+        target_zone_ = config.params["target_zone"].get<uint32_t>();
+    } else {
+        target_zone_ = 2;
+    }
+    if (config.params.contains("flood_multiplier")) {
+        flood_multiplier_ = config.params["flood_multiplier"].get<uint32_t>();
+    } else {
+        flood_multiplier_ = 10;
+    }
+    return true;
+}
+
+void CascadingZoneFailureFault::deactivate() {
+    active_ = false;
+    fired_crash_ = false;
+    source_crashed_ = false;
+}
+
+bool CascadingZoneFailureFault::is_active() const { return active_; }
+
+void CascadingZoneFailureFault::on_tick(uint64_t current_tick, Zone* zone) {
+    if (!active_ || zone == nullptr) {
+        return;
+    }
+
+    // Phase 1: Crash the source zone
+    if (zone->zone_id() == source_zone_ && !fired_crash_) {
+        fired_crash_ = true;
+        source_crashed_ = true;
+
+        if (Logger::is_initialized()) {
+            Logger::instance().event("fault", "Cascading failure: crashing source zone", {
+                {"fault_id", id()},
+                {"source_zone", source_zone_},
+                {"target_zone", target_zone_}
+            });
+        }
+
+        throw std::runtime_error("Cascading zone failure: source zone crash injected");
+    }
+
+    // Phase 2: Flood the target zone after source has crashed
+    if (zone->zone_id() == target_zone_ && source_crashed_) {
+        const auto& entities = zone->entities();
+        size_t total_events = entities.size() * flood_multiplier_;
+
+        size_t i = 0;
+        for (const auto& [session_id, entity] : entities) {
+            for (uint32_t m = 0; m < flood_multiplier_; ++m) {
+                float x = static_cast<float>((current_tick * 31 + i * 7 + session_id) % 1000);
+                float y = static_cast<float>((current_tick * 13 + i * 11 + session_id) % 1000);
+                zone->push_event(std::make_unique<MovementEvent>(
+                    session_id, Position{x, y, 0.0f}));
+                ++i;
+            }
+        }
+
+        if (Logger::is_initialized()) {
+            Logger::instance().event("fault", "Cascading failure: target zone flooded", {
+                {"fault_id", id()},
+                {"target_zone", target_zone_},
+                {"events_injected", total_events}
+            });
+        }
+    }
+}
+
+FaultStatus CascadingZoneFailureFault::status() const {
+    FaultStatus s;
+    s.id = id();
+    s.mode = mode();
+    s.active = active_;
+    s.activations = activations_;
+    s.ticks_elapsed = ticks_elapsed_;
+    s.config = active_ ? config_.params : nlohmann::json::object();
+    return s;
 }
 
 }  // namespace wow
