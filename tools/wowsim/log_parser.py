@@ -97,6 +97,9 @@ def summarize(entries: list[TelemetryEntry]) -> LogSummary:
     )
 
 
+# --- Anomaly Detection ---
+
+
 def detect_anomalies(
     entries: list[TelemetryEntry],
     tick_warn_ms: float = DEFAULT_TICK_DURATION_WARN_MS,
@@ -105,4 +108,129 @@ def detect_anomalies(
     error_burst_window_sec: float = DEFAULT_ERROR_BURST_WINDOW_SEC,
 ) -> list[Anomaly]:
     """Detect anomalies in the telemetry stream."""
-    raise NotImplementedError
+    anomalies: list[Anomaly] = []
+    anomalies.extend(_detect_latency_spikes(entries, tick_warn_ms, tick_crit_ms))
+    anomalies.extend(_detect_zone_crashes(entries))
+    anomalies.extend(
+        _detect_error_bursts(entries, error_burst_threshold, error_burst_window_sec)
+    )
+    anomalies.extend(_detect_unexpected_disconnects(entries))
+    return anomalies
+
+
+def _detect_latency_spikes(
+    entries: list[TelemetryEntry],
+    warn_ms: float,
+    crit_ms: float,
+) -> list[Anomaly]:
+    """Detect tick duration anomalies from game_loop 'Tick completed' metrics."""
+    anomalies: list[Anomaly] = []
+    for entry in entries:
+        if (
+            entry.type == "metric"
+            and entry.component == "game_loop"
+            and entry.message == "Tick completed"
+        ):
+            duration = entry.data.get("duration_ms", 0.0)
+            if duration >= crit_ms:
+                anomalies.append(
+                    Anomaly(
+                        type="latency_spike",
+                        severity="critical",
+                        timestamp=entry.timestamp,
+                        message=f"Tick duration {duration}ms exceeds critical threshold ({crit_ms}ms)",
+                        details={"duration_ms": duration, "threshold_ms": crit_ms},
+                    )
+                )
+            elif duration >= warn_ms:
+                anomalies.append(
+                    Anomaly(
+                        type="latency_spike",
+                        severity="warning",
+                        timestamp=entry.timestamp,
+                        message=f"Tick duration {duration}ms exceeds warning threshold ({warn_ms}ms)",
+                        details={"duration_ms": duration, "threshold_ms": warn_ms},
+                    )
+                )
+    return anomalies
+
+
+def _detect_zone_crashes(entries: list[TelemetryEntry]) -> list[Anomaly]:
+    """Detect zone tick exceptions."""
+    anomalies: list[Anomaly] = []
+    for entry in entries:
+        if (
+            entry.type == "error"
+            and entry.component == "zone"
+            and entry.message == "Zone tick exception"
+        ):
+            zone_id = entry.data.get("zone_id", "unknown")
+            error_msg = entry.data.get("error", "unknown error")
+            anomalies.append(
+                Anomaly(
+                    type="zone_crash",
+                    severity="critical",
+                    timestamp=entry.timestamp,
+                    message=f"Zone {zone_id} crashed: {error_msg}",
+                    details=dict(entry.data),
+                )
+            )
+    return anomalies
+
+
+def _detect_error_bursts(
+    entries: list[TelemetryEntry],
+    threshold: int,
+    window_sec: float,
+) -> list[Anomaly]:
+    """Detect bursts of errors within a sliding time window."""
+    errors = [e for e in entries if e.type == "error"]
+    if len(errors) < threshold:
+        return []
+
+    anomalies: list[Anomaly] = []
+    # Sliding window: for each error, count how many errors fall within window_sec
+    reported = False
+    for i, error in enumerate(errors):
+        window_start = error.timestamp
+        count = 0
+        for j in range(i, len(errors)):
+            delta = (errors[j].timestamp - window_start).total_seconds()
+            if delta <= window_sec:
+                count += 1
+            else:
+                break
+        if count >= threshold and not reported:
+            anomalies.append(
+                Anomaly(
+                    type="error_burst",
+                    severity="critical",
+                    timestamp=error.timestamp,
+                    message=f"{count} errors within {window_sec}s (threshold: {threshold})",
+                    details={"error_count": count, "window_sec": window_sec},
+                )
+            )
+            reported = True
+    return anomalies
+
+
+def _detect_unexpected_disconnects(entries: list[TelemetryEntry]) -> list[Anomaly]:
+    """Detect unexpected client disconnections."""
+    anomalies: list[Anomaly] = []
+    for entry in entries:
+        if (
+            entry.type == "event"
+            and entry.component == "game_server"
+            and entry.message == "Client disconnected"
+        ):
+            session_id = entry.data.get("session_id", "unknown")
+            anomalies.append(
+                Anomaly(
+                    type="unexpected_disconnect",
+                    severity="warning",
+                    timestamp=entry.timestamp,
+                    message=f"Client session {session_id} disconnected unexpectedly",
+                    details=dict(entry.data),
+                )
+            )
+    return anomalies
