@@ -70,6 +70,25 @@ def status_to_style(status: str) -> str:
     }.get(status, "bold white")
 
 
+def compute_suggestion(
+    players: int, active_faults: int, status: str, pipeline_ran: bool
+) -> str:
+    """Return context-aware guidance text for the suggestion bar.
+
+    Driven by current dashboard state: player count, active faults,
+    health status, and whether the pipeline has run this session.
+    """
+    if players == 0:
+        return "Press [bold]s[/] to spawn players"
+    if active_faults > 0 and status == "critical":
+        return "Press [bold]d[/] to deactivate fault and recover"
+    if active_faults > 0:
+        return "Fault active — observe metrics"
+    if pipeline_ran:
+        return "Press [bold]s[/] for another scenario, or [bold]q[/] to quit"
+    return "Press [bold]a[/] to inject a fault, or [bold]p[/] to run pipeline"
+
+
 def fault_action_label(active: bool) -> str:
     """Return the appropriate action label for a fault's current state."""
     return "Deactivate" if active else "Activate"
@@ -160,6 +179,9 @@ try:
             self._config = config
             self._last_entry_ts: datetime | None = None
             self._fault_list: list = []
+            self._player_count: int = 0
+            self._health_status: str = "healthy"
+            self._pipeline_ran: bool = False
 
         def compose(self) -> ComposeResult:
             """Build the widget tree."""
@@ -170,6 +192,7 @@ try:
                 yield DataTable(id="zone-table")
             yield Static("FAULT CONTROL\n\nLoading...", id="fault-panel")
             yield RichLog(id="event-log", highlight=True, markup=True)
+            yield Static("Loading...", id="suggestion-bar")
             yield Footer()
 
         def on_mount(self) -> None:
@@ -257,6 +280,23 @@ try:
                 log = self.query_one("#event-log", RichLog)
                 for entry in new_entries:
                     log.write(format_event_line(entry))
+
+            # Track state for suggestion bar
+            self._player_count = players
+            self._health_status = status
+            self._update_suggestion()
+
+        def _update_suggestion(self) -> None:
+            """Update the suggestion bar based on current state."""
+            active_faults = sum(1 for f in self._fault_list if f.active)
+            text = compute_suggestion(
+                self._player_count,
+                active_faults,
+                self._health_status,
+                self._pipeline_ran,
+            )
+            bar = self.query_one("#suggestion-bar", Static)
+            bar.update(text)
 
         @work(exclusive=True)
         async def _fetch_fault_list(self) -> None:
