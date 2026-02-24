@@ -7,6 +7,13 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- Interactive demo command (`wowsim demo`): single command that auto-detects the server binary, starts it as a subprocess, and launches an enhanced dashboard with guided suggestions. Suggestion bar adapts to state (spawn players → inject fault → observe → recover → pipeline → quit). Fault picker modal lists all 8 scenarios (F1-F8) with descriptions. Spawn clients (`s`), pipeline (`p`), and fault activation (`a`) keybindings use thread workers for Textual compatibility (ADR-029)
+- `wowsim.demo_runner` module: testable pure functions for binary detection (`find_server_binary`), telemetry cleanup (`clean_telemetry`, `default_telemetry_path`), and `ServerProcess` class for subprocess lifecycle with readiness detection
+- `FAULT_CATALOG` dict in `wowsim.dashboard`: all 8 fault scenarios with descriptions and default params, `format_fault_option` formatting helper
+- `compute_suggestion` pure function: state-based decision tree returning context-aware guidance text for the suggestion bar
+- `FaultPickerScreen` ModalScreen: OptionList of faults, selection activates, Escape cancels
+- Dashboard keybindings: `s` (spawn 5 clients), `p` (run deployment pipeline), `a` (open fault picker modal) — complementing existing `r`/`d`/`x`/`q`
+- 40 new pytest cases for dashboard (suggestion bar, spawn binding, fault catalog, pipeline binding) and demo_runner (binary detection, telemetry helpers, ServerProcess, CLI). Total: 158 non-integration Python tests passing
 - Docker Compose one-command demo: `docker compose up --build` builds and runs the full 70-second reliability lifecycle automatically. Server-only mode available via `--profile server`. Dockerfile now includes `scripts/` directory. `demo.sh` gains Docker binary path detection (ADR-028)
 - Polished README with skills mapping table, key features overview, inline Mermaid system-overview diagram, 4 sample terminal output blocks (healthy/critical health reports, anomaly detection, pipeline rollback), fault scenarios table (F1-F8), project stats, and 6 image placeholders with descriptive alt text. README is now a self-contained portfolio piece readable with or without captured screenshots
 - `docs/assets/` directory for future screenshots and GIFs, with `.gitkeep`

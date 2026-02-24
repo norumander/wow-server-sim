@@ -36,7 +36,7 @@ C++17 TCP server running a fixed 20 Hz tick loop (matching WoW's actual server t
 
 ### Reliability Lifecycle Demo
 
-A scripted 70-second walkthrough (`scripts/demo.sh`) that demonstrates the full **detect → diagnose → fix → deploy** cycle with zero manual intervention. Injects a latency fault, detects anomalies in telemetry, deactivates the fault, then runs a canary deployment pipeline with automated health gates and rollback.
+Two demo modes: a scripted 70-second walkthrough (`scripts/demo.sh`) for non-interactive recording, and an **interactive demo** (`wowsim demo`) that starts the server, opens the dashboard with guided suggestions, and lets you explore the full **detect → diagnose → fix → deploy** cycle at your own pace. The suggestion bar adapts to current state — prompting you to spawn players, inject faults, observe metrics, recover, and run the deployment pipeline.
 
 ### Python Tooling Suite
 
@@ -44,7 +44,7 @@ A scripted 70-second walkthrough (`scripts/demo.sh`) that demonstrates the full 
 
 ### Monitoring Dashboard
 
-Textual-based TUI with auto-refreshing panels for tick metrics, zone health, active faults, and a scrolling event log. Worker-thread health refresh for non-blocking sync I/O. Keyboard shortcuts for fault activation/deactivation.
+Textual-based TUI with auto-refreshing panels for tick metrics, zone health, active faults, and a scrolling event log. Worker-thread health refresh for non-blocking sync I/O. Keyboard shortcuts for spawning clients (`s`), fault picker modal (`a`), deactivation (`d`/`x`), and pipeline execution (`p`). Guided suggestion bar shows context-aware next steps.
 
 ### Deployment Pipeline
 
@@ -276,6 +276,7 @@ Available commands:
 | `wowsim dashboard` | Launch the monitoring TUI |
 | `wowsim deploy` | Run the hotfix deployment pipeline |
 | `wowsim benchmark` | Performance benchmark suite |
+| `wowsim demo` | Interactive demo: start server + guided dashboard |
 
 ### Build From Source
 
