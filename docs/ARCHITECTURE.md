@@ -205,10 +205,17 @@ AUTHENTICATING + DISCONNECT           → DISCONNECTING
 - **Convenience API:** `metric()`, `event()`, `health()`, `error()` wrappers delegate to `log()` with the appropriate `LogType`
 - **Test strategy:** 28 GoogleTest cases using `std::ostringstream` as custom sink — covers schema compliance, type mapping, data handling, multi-line output, file I/O, and concurrent writes
 
-### Control Channel
-- **Protocol:** TCP with newline-delimited JSON
-- **Purpose:** Runtime fault injection without disrupting game loop
-- **Interface:** Separate port from game traffic
+### Control Channel (`src/control/control_channel.h`)
+- **Implementation:** `wow::ControlChannel` class with `wow::ControlChannelConfig` (port, default 8081). Runs `asio::io_context` on a dedicated `std::thread`, mirroring `GameServer` pattern. Accepts newline-delimited JSON commands for runtime fault injection
+- **Protocol:** Newline-delimited JSON over TCP. Five commands: `activate` (with fault_id, params, target_zone_id, duration_ticks), `deactivate` (with fault_id), `deactivate_all`, `status` (with fault_id), `list`. Responses include `success` boolean, `command` echo, and command-specific data or `error` message
+- **Thread safety:** `wow::CommandQueue` (mutex + swap drain, per ADR-017) is the sole shared state between network and game threads. Network thread parses JSON and pushes `ControlCommand` structs; game thread calls `process_pending_commands()` once per tick to drain and execute against `FaultRegistry`. Response write-back via `on_complete` callback + `asio::post()` to network thread's io_context
+- **Error handling:** JSON parse errors handled directly on network thread (no queue round-trip). Missing `command` field and unknown commands return `{"success": false, "error": "..."}` after queue round-trip
+- **Lifecycle:** `start()` binds acceptor (port 0 = OS-assigned), begins async accept, spawns network thread. `stop()` closes acceptor, closes all clients, stops io_context, joins thread. Destructor calls `stop()` for RAII. Double-start and double-stop are no-ops via `compare_exchange_strong`
+- **Client tracking:** `std::vector<weak_ptr<asio::ip::tcp::socket>>` registry with `atomic<size_t>` count. Expired weak_ptrs cleaned on disconnect
+- **Helpers:** `fault_mode_to_string()` converts `FaultMode` enum to protocol strings ("tick_scoped"/"ambient"). `fault_status_to_json()` converts `FaultStatus` snapshot to JSON for status/list responses
+- **Tick ordering:** `control.process_pending_commands()` → `registry.on_tick(tick)` → `zone_manager.tick_all(tick)` — fault activation takes effect on the same tick it's processed
+- **Telemetry:** Emits `"Control channel started"` (with port), `"Control channel stopped"`, `"Control client connected"` (with client_count), `"Control client disconnected"` (with client_count)
+- **Test strategy:** 22 GoogleTest cases in 7 groups: CommandQueue (3), construction/lifecycle (4), connection handling (3), activate command (3), deactivate commands (3), status/list commands (3), error handling (3). Tests use port 0 with `send_command` helper (poll-based read with 2s timeout)
 
 ### Fault Injection (`src/server/fault/`)
 - **Architecture:** `wow::FaultRegistry` owns all registered `wow::Fault` instances via `unordered_map<FaultId, unique_ptr<Fault>>`. Not a singleton — created and owned by the game server for testability
@@ -231,11 +238,12 @@ AUTHENTICATING + DISCONNECT           → DISCONNECTING
 
 ## Concurrency Model
 
-**MVP (Two Threads):**
-- Network thread: Asio io_context, handles all TCP I/O
+**MVP (Three Threads):**
+- Game server network thread: Asio io_context, handles game client TCP I/O
+- Control channel network thread: Separate Asio io_context, handles operator TCP I/O
 - Game loop thread: Fixed-rate tick, processes all zones sequentially
-- Communication: Thread-safe intake queue (mutex + condition variable)
-- Ownership boundary: Game thread owns all game state. Network thread only enqueues.
+- Communication: Thread-safe intake queue (EventQueue) and command queue (CommandQueue), both mutex + swap drain
+- Ownership boundary: Game thread owns all game state (FaultRegistry, ZoneManager). Network threads only enqueue.
 
 **Polish (Thread-per-Zone):**
 - Each zone gets its own thread and tick loop
@@ -246,6 +254,7 @@ AUTHENTICATING + DISCONNECT           → DISCONNECTING
 ## Key Design Patterns
 - **Producer/Consumer:** Network → intake queue → game loop
 - **Two-Stage Queue:** Intake → per-zone distribution
+- **Command Queue:** Control channel → command queue → game thread (ADR-017)
 - **Transition Table:** Session state machine
 - **Phase Pipeline:** Ordered tick processing
 - **Mark-and-Sweep:** Session cleanup with reconnection window

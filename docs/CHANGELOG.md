@@ -7,6 +7,11 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- Control channel (`wow::ControlChannel`): separate TCP server for runtime fault injection commands. Newline-delimited JSON protocol with activate, deactivate, deactivate_all, status, and list commands. Thread-safe command queue (ADR-017) bridges network and game threads — FaultRegistry only touched by game thread
+- `wow::CommandQueue`: thread-safe producer/consumer queue mirroring EventQueue pattern (mutex + swap drain). Network thread pushes parsed commands; game thread drains at tick start via `process_pending_commands()`
+- Control channel protocol helpers: `fault_mode_to_string()` and `fault_status_to_json()` for JSON serialization of fault status
+- Control channel error handling: JSON parse errors responded directly on network thread, missing command field and unknown command errors via queue round-trip
+- 22 GoogleTest cases for control channel covering CommandQueue (3), lifecycle (4), connections (3), activate (3), deactivate (3), status/list (3), errors (3)
 - Fault injection framework (`wow::Fault`, `wow::FaultRegistry`): abstract base class with `FaultMode` (TICK_SCOPED/AMBIENT), `FaultConfig` (params, target_zone_id, duration_ticks), and `FaultStatus` snapshot. Registry owns faults, handles activation/deactivation, duration-based auto-deactivation, zone targeting, and telemetry emission
 - F1 LatencySpikeFault: configurable `sleep_for(delay_ms)` in zone pre-tick hook, default 200ms, simulates processing latency
 - F2 SessionCrashFault: removes first entity from zone, fire-once per activation, safe on empty zones, emits telemetry with victim session_id
