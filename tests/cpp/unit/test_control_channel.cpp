@@ -488,3 +488,91 @@ TEST_F(ControlChannelTest, List_ReturnsAllRegisteredFaults)
     sock.close();
     channel.stop();
 }
+
+// =============================================================================
+// Group G: Error Handling (3 tests)
+// =============================================================================
+
+TEST_F(ControlChannelTest, Error_InvalidJsonReturnsError)
+{
+    wow::ControlChannelConfig cfg{0};
+    wow::ControlChannel channel(registry_, cfg);
+    channel.start();
+
+    asio::io_context client_ctx;
+    auto sock = connect_client(client_ctx, channel.port());
+    ASSERT_TRUE(wait_for([&] { return channel.client_count() == 1; }));
+
+    // Send raw invalid JSON (not via send_command — error response comes
+    // directly from network thread, no process_pending_commands needed).
+    std::string bad_line = "this is not json\n";
+    asio::write(sock, asio::buffer(bad_line));
+
+    // Wait for response on network thread.
+    std::this_thread::sleep_for(100ms);
+
+    // Read the error response.
+    auto deadline = std::chrono::steady_clock::now() + 2s;
+    bool got_response = false;
+    while (std::chrono::steady_clock::now() < deadline) {
+        if (sock.available() > 0) {
+            got_response = true;
+            break;
+        }
+        std::this_thread::sleep_for(10ms);
+    }
+    ASSERT_TRUE(got_response) << "No response for invalid JSON";
+
+    asio::streambuf response_buf;
+    asio::read_until(sock, response_buf, '\n');
+    std::istream stream(&response_buf);
+    std::string response_line;
+    std::getline(stream, response_line);
+    if (!response_line.empty() && response_line.back() == '\r') {
+        response_line.pop_back();
+    }
+
+    auto response = json::parse(response_line);
+    EXPECT_FALSE(response["success"].get<bool>());
+    EXPECT_TRUE(response["error"].get<std::string>().find("Invalid JSON") != std::string::npos);
+
+    sock.close();
+    channel.stop();
+}
+
+TEST_F(ControlChannelTest, Error_MissingCommandField)
+{
+    wow::ControlChannelConfig cfg{0};
+    wow::ControlChannel channel(registry_, cfg);
+    channel.start();
+
+    asio::io_context client_ctx;
+    auto sock = connect_client(client_ctx, channel.port());
+    ASSERT_TRUE(wait_for([&] { return channel.client_count() == 1; }));
+
+    // Valid JSON but no "command" field
+    auto response = send_command(sock, json{{"fault_id", "latency-spike"}}, channel);
+    EXPECT_FALSE(response["success"].get<bool>());
+    EXPECT_TRUE(response["error"].get<std::string>().find("command") != std::string::npos);
+
+    sock.close();
+    channel.stop();
+}
+
+TEST_F(ControlChannelTest, Error_UnknownCommand)
+{
+    wow::ControlChannelConfig cfg{0};
+    wow::ControlChannel channel(registry_, cfg);
+    channel.start();
+
+    asio::io_context client_ctx;
+    auto sock = connect_client(client_ctx, channel.port());
+    ASSERT_TRUE(wait_for([&] { return channel.client_count() == 1; }));
+
+    auto response = send_command(sock, json{{"command", "foobar"}}, channel);
+    EXPECT_FALSE(response["success"].get<bool>());
+    EXPECT_TRUE(response["error"].get<std::string>().find("Unknown command") != std::string::npos);
+
+    sock.close();
+    channel.stop();
+}
