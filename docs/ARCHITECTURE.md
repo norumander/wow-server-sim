@@ -210,10 +210,19 @@ AUTHENTICATING + DISCONNECT           → DISCONNECTING
 - **Purpose:** Runtime fault injection without disrupting game loop
 - **Interface:** Separate port from game traffic
 
-### Fault Injection
-- **Architecture:** `FaultRegistry` with self-registration pattern
-- **Tick-scoped faults:** Fire at hook points in tick pipeline (latency spike, event flood, session crash)
-- **Ambient faults:** Run independently when activated (memory pressure, slow leak)
+### Fault Injection (`src/server/fault/`)
+- **Architecture:** `wow::FaultRegistry` owns all registered `wow::Fault` instances via `unordered_map<FaultId, unique_ptr<Fault>>`. Not a singleton — created and owned by the game server for testability
+- **Base class:** `wow::Fault` abstract base with `id()`, `mode()`, `activate()`, `deactivate()`, `is_active()`, `on_tick(tick, zone*)`, `status()`. `FaultMode` enum distinguishes `TICK_SCOPED` (fires per-zone via pre_tick_hook) from `AMBIENT` (runs globally when activated)
+- **Configuration:** `wow::FaultConfig` carries fault-specific `nlohmann::json params`, `target_zone_id` (0 = all zones), and `duration_ticks` (0 = indefinite). `FaultStatus` snapshot for telemetry and monitoring
+- **Zone hook wiring:** Game loop sets each zone's pre_tick_hook to call `registry.execute_pre_tick_faults(zone)`, which runs inside the zone's exception guard. The registry's `on_tick()` is called before `zone_manager.tick_all()` to drive ambient faults and duration tracking
+- **Zone targeting:** `execute_pre_tick_faults()` checks `target_zone_id` — 0 matches all zones, specific ID matches only that zone. Ambient faults are excluded from pre-tick execution
+- **Duration tracking:** Registry stores per-fault `ActivationInfo` with config and `ticks_elapsed` counter. `on_tick()` increments elapsed and auto-deactivates when `duration_ticks > 0 && ticks_elapsed >= duration_ticks`
+- **Telemetry:** Emits `"Fault activated"` and `"Fault deactivated"` events via Logger on activate/deactivate
+- **F1 LatencySpikeFault** (`TICK_SCOPED`): `sleep_for(delay_ms)` in `on_tick()`. Default 200ms, configurable via `params["delay_ms"]`. Simulates processing latency visible as tick rate degradation
+- **F2 SessionCrashFault** (`TICK_SCOPED`): Removes first entity from zone via `zone->remove_entity()`. Fire-once flag per activation — re-activation resets. Safe on empty zones. Emits telemetry with victim session_id
+- **F3 EventQueueFloodFault** (`TICK_SCOPED`): Pushes `multiplier * entity_count` synthetic `MovementEvent`s into zone queue via `zone->push_event()`. Default multiplier 10, configurable via `params["multiplier"]`. Deterministic positions via hash formula (no `<random>` header). Events pushed in pre-tick hook, drained and processed in same tick
+- **F4 MemoryPressureFault** (`AMBIENT`): Allocates `megabytes` MB in 1MB `vector<uint8_t>` chunks filled with 0xAB (ensures OS page commit). Releases on deactivation. `bytes_allocated()` accessor. Default 64 MB, configurable via `params["megabytes"]`
+- **Test strategy:** 28 GoogleTest cases in 8 groups: registry registration (3), activation/deactivation (4), duration/status/telemetry (4), F1 latency spike (3), F2 session crash (4), F3 event flood (3), F4 memory pressure (3), zone integration (4)
 
 ### Python Tooling (`wowsim` CLI)
 - **Package:** Installable via `pip install -e tools/`, provides `wowsim` command

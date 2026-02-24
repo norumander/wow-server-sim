@@ -7,6 +7,13 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- Fault injection framework (`wow::Fault`, `wow::FaultRegistry`): abstract base class with `FaultMode` (TICK_SCOPED/AMBIENT), `FaultConfig` (params, target_zone_id, duration_ticks), and `FaultStatus` snapshot. Registry owns faults, handles activation/deactivation, duration-based auto-deactivation, zone targeting, and telemetry emission
+- F1 LatencySpikeFault: configurable `sleep_for(delay_ms)` in zone pre-tick hook, default 200ms, simulates processing latency
+- F2 SessionCrashFault: removes first entity from zone, fire-once per activation, safe on empty zones, emits telemetry with victim session_id
+- F3 EventQueueFloodFault: injects `multiplier * entity_count` synthetic MovementEvents with deterministic positions, default multiplier 10
+- F4 MemoryPressureFault: allocates configurable MB in 1MB committed chunks on activation, releases on deactivation, `bytes_allocated()` accessor
+- FaultRegistry zone integration: `execute_pre_tick_faults()` fires active tick-scoped faults inside zone exception guard, with zone targeting (0 = all, specific = match). Multi-fault composition supported
+- 28 GoogleTest cases for fault injection covering registry lifecycle (11), F1-F4 scenarios (13), and zone integration (4)
 - Zone isolation system (`wow::Zone`, `wow::ZoneManager`): self-contained processing units with per-zone entity maps, event queues, and tick pipelines (Movement → SpellCast → Combat). Exception guard wraps each zone's tick in try/catch for crash isolation between zones
 - Zone state recovery arc: CRASHED → DEGRADED → ACTIVE on successive successful ticks, visible in telemetry for monitoring dashboard
 - Zone session management: `assign_session`/`remove_session`/`transfer_session` with entity state preservation (position, cast, combat) during zone transfers via `unordered_map::extract()`
