@@ -107,3 +107,35 @@ class TestServerProcess:
         sp = ServerProcess(Path("fake-binary"), Path("fake.jsonl"))
         assert callable(sp.start)
         assert callable(sp.stop)
+
+
+# ---------------------------------------------------------------------------
+# Group D: CLI integration (2 tests)
+# ---------------------------------------------------------------------------
+
+
+class TestDemoCLI:
+    """wowsim demo CLI command is registered and shows help."""
+
+    def test_demo_help(self) -> None:
+        from click.testing import CliRunner
+
+        from wowsim.cli import main
+
+        runner = CliRunner()
+        result = runner.invoke(main, ["demo", "--help"])
+        assert result.exit_code == 0
+        assert "demo" in result.output.lower() or "Launch" in result.output
+
+    def test_demo_no_binary_errors(self, tmp_path: Path, monkeypatch) -> None:
+        """demo command errors when no server binary found."""
+        from click.testing import CliRunner
+
+        from wowsim.cli import main
+
+        # Point to empty tmp_path where no binary exists
+        monkeypatch.chdir(tmp_path)
+        runner = CliRunner()
+        result = runner.invoke(main, ["demo", "--project-root", str(tmp_path)])
+        assert result.exit_code != 0
+        assert "not found" in result.output.lower() or "error" in result.output.lower()
