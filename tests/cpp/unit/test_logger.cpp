@@ -120,7 +120,7 @@ TEST_F(LoggerTest, LogEntryIsValidJson)
     wow::Logger::instance().log(wow::LogType::event, "test", "hello");
     std::string output = sink_.str();
     ASSERT_FALSE(output.empty()) << "Logger produced no output";
-    EXPECT_NO_THROW((void)json::parse(output));
+    EXPECT_NO_THROW(auto j = json::parse(output); (void)j);
 }
 
 TEST_F(LoggerTest, LogEntryContainsSchemaVersion)
@@ -327,7 +327,7 @@ TEST_F(LoggerTest, EachLineIsIndependentlyParseable)
     int count = 0;
     while (std::getline(stream, line)) {
         if (!line.empty()) {
-            EXPECT_NO_THROW((void)json::parse(line)) << "Line not valid JSON: " << line;
+            EXPECT_NO_THROW(auto j = json::parse(line); (void)j) << "Line not valid JSON: " << line;
             count++;
         }
     }

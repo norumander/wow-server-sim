@@ -146,8 +146,6 @@ protected:
         // Read the response line with timeout.
         auto response_buf = std::make_shared<asio::streambuf>();
         asio::io_context read_ctx;
-        asio::ip::tcp::socket::native_handle_type native = sock.native_handle();
-
         std::string response_line;
         bool read_complete = false;
         asio::error_code read_ec;
