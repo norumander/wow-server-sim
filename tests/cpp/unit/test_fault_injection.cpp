@@ -508,3 +508,54 @@ TEST(SlowLeakFault, ResetOnDeactivateReactivate) {
     fault.on_tick(1, &zone);
     EXPECT_EQ(fault.current_delay_ms(), 1u);
 }
+
+// =============================================================================
+// Group K: SplitBrainFault F7 (3 tests)
+// =============================================================================
+
+TEST(SplitBrainFault, IdAndModeCorrect) {
+    SplitBrainFault fault;
+    EXPECT_EQ(fault.id(), "split-brain");
+    EXPECT_EQ(fault.mode(), FaultMode::TICK_SCOPED);
+}
+
+TEST(SplitBrainFault, PhantomsCreatedInZone) {
+    SplitBrainFault fault;
+    FaultConfig config;
+    config.params = {{"phantom_count", 2}, {"phantom_base_id", 2000001}};
+    fault.activate(config);
+
+    Zone zone(ZoneConfig{1, "Test Zone"});
+    ASSERT_EQ(zone.entity_count(), 0u);
+
+    fault.on_tick(1, &zone);
+
+    // Should have created 2 phantom entities
+    EXPECT_EQ(zone.entity_count(), 2u);
+    EXPECT_TRUE(zone.has_entity(2000001));
+    EXPECT_TRUE(zone.has_entity(2000002));
+}
+
+TEST(SplitBrainFault, DivergentEventsPerZone) {
+    SplitBrainFault fault;
+    FaultConfig config;
+    config.params = {{"phantom_count", 1}, {"phantom_base_id", 2000001}};
+    fault.activate(config);
+
+    Zone zone1(ZoneConfig{1, "Zone 1"});   // odd zone_id
+    Zone zone2(ZoneConfig{2, "Zone 2"});   // even zone_id
+
+    // First tick: create phantoms
+    fault.on_tick(1, &zone1);
+    fault.on_tick(1, &zone2);
+    ASSERT_EQ(zone1.entity_count(), 1u);
+    ASSERT_EQ(zone2.entity_count(), 1u);
+
+    // Second tick: inject divergent movement events
+    fault.on_tick(2, &zone1);
+    fault.on_tick(2, &zone2);
+
+    // Both zones should have movement events injected
+    EXPECT_GE(zone1.event_queue_depth(), 1u);
+    EXPECT_GE(zone2.event_queue_depth(), 1u);
+}
