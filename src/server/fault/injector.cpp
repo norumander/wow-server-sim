@@ -141,8 +141,23 @@ void FaultRegistry::on_tick(uint64_t current_tick) {
     }
 }
 
-void FaultRegistry::execute_pre_tick_faults(Zone& /*zone*/) {
-    // Stub — implemented in Commit 6
+void FaultRegistry::execute_pre_tick_faults(Zone& zone) {
+    for (auto& [id, fault] : faults_) {
+        if (!fault->is_active() || fault->mode() != FaultMode::TICK_SCOPED) {
+            continue;
+        }
+
+        // Zone targeting: 0 = all zones, specific = match only
+        auto act_it = activations_.find(id);
+        if (act_it != activations_.end()) {
+            uint32_t target = act_it->second.config.target_zone_id;
+            if (target != 0 && target != zone.zone_id()) {
+                continue;
+            }
+        }
+
+        fault->on_tick(current_tick_, &zone);
+    }
 }
 
 }  // namespace wow
