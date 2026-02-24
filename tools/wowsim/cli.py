@@ -464,5 +464,82 @@ def deploy(
         click.echo(format_pipeline_result(result))
 
 
+@main.command()
+@click.option(
+    "--log-file",
+    required=True,
+    type=click.Path(exists=True),
+    help="Path to JSONL telemetry log file.",
+)
+@click.option("--host", default="localhost", help="Game server host.")
+@click.option("--port", default=8080, type=int, help="Game server port.")
+@click.option(
+    "--counts",
+    default="0,10,25,50,100",
+    help="Comma-separated client counts to benchmark.",
+)
+@click.option("--duration", default=10.0, type=float, help="Seconds per scenario.")
+@click.option("--rate", default=2.0, type=float, help="Actions per second per client.")
+@click.option(
+    "--settle", default=2.0, type=float, help="Settle time between scenarios (seconds)."
+)
+@click.option(
+    "--max-avg-tick", default=50.0, type=float, help="Max avg tick duration (ms)."
+)
+@click.option(
+    "--max-p99-tick", default=100.0, type=float, help="Max P99 tick duration (ms)."
+)
+@click.option(
+    "--max-overrun-pct", default=5.0, type=float, help="Max tick overrun percentage."
+)
+@click.option(
+    "--format",
+    "output_format",
+    type=click.Choice(["text", "json"]),
+    default="text",
+    help="Output format.",
+)
+def benchmark(
+    log_file: str,
+    host: str,
+    port: int,
+    counts: str,
+    duration: float,
+    rate: float,
+    settle: float,
+    max_avg_tick: float,
+    max_p99_tick: float,
+    max_overrun_pct: float,
+    output_format: str,
+) -> None:
+    """Run performance benchmarks with scaling client counts."""
+    from wowsim.benchmark import format_benchmark_result, run_benchmark
+    from wowsim.models import BenchmarkConfig
+
+    client_counts = [int(c.strip()) for c in counts.split(",")]
+
+    config = BenchmarkConfig(
+        game_host=host,
+        game_port=port,
+        log_file=log_file,
+        client_counts=client_counts,
+        duration_seconds=duration,
+        actions_per_second=rate,
+        settle_seconds=settle,
+        max_avg_tick_ms=max_avg_tick,
+        max_p99_tick_ms=max_p99_tick,
+        max_overrun_pct=max_overrun_pct,
+    )
+
+    result = run_benchmark(config)
+
+    if output_format == "json":
+        click.echo(result.model_dump_json(indent=2))
+    else:
+        click.echo(format_benchmark_result(result))
+
+    sys.exit(0 if result.overall_passed else 1)
+
+
 if __name__ == "__main__":
     main()

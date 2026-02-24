@@ -551,3 +551,38 @@ class TestOrchestratorBaselineSkipsSpawn:
         result = benchmark.run_benchmark(config)
         assert spawn_called["count"] == 0
         assert len(result.scenarios) == 1
+
+
+# ============================================================
+# Group H: CLI Integration (2 tests)
+# ============================================================
+
+
+class TestCLIBenchmarkHelp:
+    """benchmark --help shows expected options."""
+
+    def test_help(self) -> None:
+        from click.testing import CliRunner
+        from wowsim.cli import main
+
+        runner = CliRunner()
+        result = runner.invoke(main, ["benchmark", "--help"])
+        assert result.exit_code == 0, result.output
+        assert "--log-file" in result.output
+        assert "--counts" in result.output
+        assert "--duration" in result.output
+        assert "--max-avg-tick" in result.output
+        assert "--max-p99-tick" in result.output
+        assert "--format" in result.output
+
+
+class TestCLIBenchmarkMissingLogFile:
+    """benchmark without --log-file exits with error."""
+
+    def test_missing_log_file(self) -> None:
+        from click.testing import CliRunner
+        from wowsim.cli import main
+
+        runner = CliRunner()
+        result = runner.invoke(main, ["benchmark"])
+        assert result.exit_code != 0
