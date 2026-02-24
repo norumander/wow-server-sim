@@ -110,3 +110,44 @@ class ControlResponse(BaseModel):
     error: str | None = None
     status: FaultInfo | None = None
     faults: list[FaultInfo] | None = None
+
+
+# ---------------------------------------------------------------------------
+# Health Check Models
+# ---------------------------------------------------------------------------
+
+
+class TickHealth(BaseModel):
+    """Tick rate stability metrics from recent telemetry."""
+
+    total_ticks: int
+    avg_duration_ms: float
+    max_duration_ms: float
+    min_duration_ms: float
+    overrun_count: int
+    overrun_pct: float
+
+
+class ZoneHealthSummary(BaseModel):
+    """Per-zone health from recent telemetry."""
+
+    zone_id: int
+    state: str
+    tick_count: int
+    error_count: int
+    avg_tick_duration_ms: float
+
+
+class HealthReport(BaseModel):
+    """Complete server health report."""
+
+    timestamp: datetime
+    status: Literal["healthy", "degraded", "critical"]
+    server_reachable: bool
+    tick: TickHealth | None = None
+    zones: list[ZoneHealthSummary] = []
+    connected_players: int = 0
+    anomalies: list[Anomaly] = []
+    active_faults: list[FaultInfo] = []
+    error_count: int = 0
+    uptime_ticks: int = 0
