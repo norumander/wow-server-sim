@@ -7,6 +7,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- TCP game server (`wow::GameServer`) with Asio async accept loop, dedicated network thread, connection registry with atomic count, and RAII start/stop lifecycle. Configurable port (0 for OS-assigned in tests)
+- Connection wrapper (`wow::Connection`) bridging TCP sockets and Sessions via `enable_shared_from_this`. Async read loop for disconnect detection, session transition to DESTROYED on client close
+- Telemetry events for server start/stop, connection accepted (with session_id and remote_endpoint), and client disconnected
+- 23 GoogleTest cases for GameServer covering construction, lifecycle, connection acceptance, disconnect handling, telemetry emission, and edge cases
+- Windows build fix: Asio SYSTEM includes, `_WIN32_WINNT=0x0A00`, ws2_32/mswsock linkage
+
 - Player session state machine (`wow::Session`) with 6 states, 7 events, and 10-entry constexpr transition table. Auto-assigned unique session IDs, telemetry on valid/invalid transitions, non-copyable/movable ownership semantics
 - 21 GoogleTest cases for session covering construction, all valid transitions, invalid transition rejection, telemetry emission, and string conversion
 - Fixed-rate game loop (`wow::GameLoop`) with configurable tick rate (default 20 Hz / 50ms), sleep-for-remainder timing via `steady_clock`, overrun detection, background thread or blocking mode, and per-tick telemetry emission

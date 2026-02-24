@@ -204,3 +204,21 @@
 - Cross-phase interactions (movement cancels cast) demonstrate pipeline design
 - Threat retargeting on disconnect creates visible fault cascades
 - Constants match real WoW values (20 Hz tick, 1.5s GCD, etc.)
+
+---
+
+## ADR-013: Connection Wrapper Separate from Session
+
+**Date:** 2026-02-23
+**Status:** Accepted
+
+**Context:** Need to bridge TCP sockets (network layer) with Sessions (game layer). Options: embed socket in Session, use a separate Connection wrapper, or use a flat struct.
+
+**Decision:** Separate `Connection` class that owns a `Session` by value and a TCP socket. `Connection` uses `enable_shared_from_this` for safe async callback capture. `GameServer` stores `shared_ptr<Connection>` in a registry keyed by session ID.
+
+**Consequences:**
+- Session remains a pure state machine with no networking dependencies — testable in isolation
+- Connection handles async I/O lifetime (shared_from_this prevents destruction during pending operations)
+- Clean separation of concerns: Session knows state transitions, Connection knows sockets
+- Connection's disconnect callback lets GameServer remove entries from the registry without coupling
+- Session is non-copyable/movable, Connection is non-copyable (shared_ptr ownership) — clear ownership semantics

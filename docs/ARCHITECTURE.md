@@ -49,11 +49,22 @@ The WoW Server Simulator consists of a C++17 game server and a Python tooling su
 
 ## Component Descriptions
 
-### Network Thread
+### Network Thread — GameServer (`src/server/game_server.h`)
 - **Responsibility:** TCP accept, read/write for game clients and control channel
 - **Library:** Standalone Asio (non-Boost), header-only via CMake FetchContent
 - **Pattern:** Async I/O — Asio abstracts epoll/IOCP, non-blocking I/O, buffer management
 - **Ownership:** Does NOT own game state. Enqueues events to intake queue only.
+- **Implementation:** `wow::GameServer` class with `GameServerConfig` (port, default 8080). Runs `asio::io_context` on a dedicated `std::thread`. Async accept loop creates `shared_ptr<Connection>` per client. Thread-safe connection registry (`std::unordered_map<uint64_t, shared_ptr<Connection>>`) protected by `std::mutex`, with a separate `std::atomic<size_t>` for lock-free connection count reads
+- **Lifecycle:** `start()` binds acceptor (port 0 = OS-assigned), begins async accept, spawns network thread. `stop()` closes acceptor, closes all connections, stops io_context, joins thread. Destructor calls `stop()` for RAII. Double-start and double-stop are no-ops via `compare_exchange_strong`
+- **Port 0 support:** Tests use port 0 for OS-assigned ephemeral ports, retrieved via `acceptor_.local_endpoint().port()` after bind
+- **Telemetry:** Emits `"Server started"` (with port), `"Server stopped"`, `"Connection accepted"` (with session_id, remote_endpoint), and `"Client disconnected"` (with session_id)
+
+### Connection (`src/server/connection.h`)
+- **Implementation:** `wow::Connection` bridges the network layer (TCP socket) and the game layer (Session). Each Connection owns a `Session` by value (starts in CONNECTING state) and uses `enable_shared_from_this` for safe async callback capture
+- **Disconnect detection:** Async read loop via `async_read_some` — received data is discarded (no protocol parsing at this stage). On EOF/error, transitions session via `DISCONNECT` event (CONNECTING → DESTROYED) and invokes the disconnect callback
+- **shared_from_this ordering:** `do_accept()` creates `make_shared<Connection>`, stores it in the connection map, THEN calls `conn->start()`. This ensures `shared_from_this()` works inside the async read loop
+- **Scope boundary:** No message framing, no protocol parsing, no game logic. The read loop exists solely for disconnect detection
+- **Test strategy:** 23 GoogleTest cases covering construction (3), start/stop lifecycle (5), connection acceptance (4), disconnect handling (4), telemetry emission (4), and edge cases (3). All tests use port 0 with a `wait_for` polling helper (10ms intervals, 500ms default timeout)
 
 ### Game Loop Thread (`src/server/game_loop.h`)
 - **Implementation:** `wow::GameLoop` class with configurable tick rate via `GameLoopConfig` (default 20 Hz / 50ms, matching WoW's actual server tick rate)
