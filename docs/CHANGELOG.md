@@ -7,6 +7,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- Combat system (`wow::CombatEvent`, `wow::CombatProcessor`): damage calculation with armor (physical) and resistance (magical) mitigation clamped to 75%, inline death check on zero health, and structured telemetry for damage dealt and entity killed events
+- Threat table tracking: damage dealt = threat generated (per ADR-012), additive accumulation across attacks, dead entity cleanup from all threat tables at end of tick
+- NPC auto-attack: living NPCs with `base_attack_damage > 0` attack the highest-threat living target each tick, creating the classic boss-fight loop (tank/DPS threat management)
+- `EntityType` enum (`PLAYER`, `NPC`) on Entity: distinguishes player-controlled from server-controlled entities, defaults to PLAYER for backward compatibility
+- `CombatState` struct on Entity: per-entity health, max_health, armor, resistance, is_alive, base_attack_damage (NPC), and threat_table
+- 26 GoogleTest cases for combat system covering event data (3), entity state (3), damage application (3), attack validation (4), kill/death (3), threat table (3), NPC auto-attack (3), and telemetry + integration (4)
 - Spell cast system (`wow::SpellCastEvent`, `wow::SpellCastProcessor`): cast initiation with variable cast times, GCD enforcement (1.5s / 30 ticks at 20 Hz), instant casts (cast_time=0), interrupt handling (by event and by movement), and 5-step per-tick processing order (movement cancel → interrupt → advance → cast start → clear flags)
 - `CastState` struct on Entity: per-entity spell casting state (`is_casting`, `spell_id`, `cast_ticks_remaining`, `gcd_expires_tick`, `moved_this_tick` cross-phase flag)
 - Movement-cancels-cast: `MovementProcessor` sets `moved_this_tick` flag, `SpellCastProcessor` cancels active casts when flag is set (WoW-authentic behavior per ADR-012)

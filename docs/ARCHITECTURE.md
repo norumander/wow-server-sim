@@ -80,7 +80,7 @@ The WoW Server Simulator consists of a C++17 game server and a Python tooling su
 
 ### Event System (`src/server/events/`)
 - **Base class:** `wow::GameEvent` with `EventType` tag enum (`MOVEMENT`, `SPELL_CAST`, `COMBAT`) and `session_id`. Owned via `std::unique_ptr<GameEvent>` for single-ownership transfer through the event queue. Virtual destructor enables polymorphic deletion; type tag enables safe `static_cast` downcasting without RTTI overhead
-- **Event types:** `wow::MovementEvent` carries a target `Position`. `wow::SpellCastEvent` carries `SpellAction` (CAST_START/INTERRUPT), `spell_id`, and `cast_time_ticks`. `COMBAT` type reserved for Step 8
+- **Event types:** `wow::MovementEvent` carries a target `Position`. `wow::SpellCastEvent` carries `SpellAction` (CAST_START/INTERRUPT), `spell_id`, and `cast_time_ticks`. `wow::CombatEvent` carries `CombatAction` (ATTACK), `target_session_id`, `base_damage`, and `DamageType` (PHYSICAL/MAGICAL)
 - **String conversion:** `event_type_to_string()` free function returning `std::string_view`
 
 ### Event Queue (`src/server/events/event_queue.h`)
@@ -113,13 +113,27 @@ The WoW Server Simulator consists of a C++17 game server and a Python tooling su
 - **Telemetry:** Emits `"Cast started"` (with spell_id, session_id, cast_time_ticks), `"Cast completed"` (with spell_id, session_id), `"Cast interrupted"` (with spell_id, session_id, reason), `"Cast blocked by GCD"` (with timing details)
 - **Test strategy:** 24 GoogleTest cases in 8 groups: SpellCastEvent data (3), CastState/Entity (3), cast initiation (3), GCD enforcement (3), timer advancement/completion (4), interrupt handling (3), telemetry (3), tick integration (2)
 
+### Combat Processor (`src/server/events/combat.h`)
+- **Implementation:** `wow::CombatProcessor::process()` runs a 3-step pipeline per tick:
+  1. **Process ATTACK events** — validate attacker/target exist and are alive, compute mitigation, apply damage, update threat table, inline death check
+  2. **NPC auto-attack** — each living NPC with a non-empty threat table attacks the highest-threat living target using `base_attack_damage`
+  3. **Dead entity cleanup** — remove dead entity IDs from all living entities' threat tables
+- **Damage formula:** `actual = round(base_damage * (1 - clamp(mitigation, 0.0, 0.75)))`. `kMaxMitigation = 0.75f`. PHYSICAL uses `armor`, MAGICAL uses `resistance` (per ADR-012)
+- **Threat model:** Damage dealt = threat generated. `target.threat_table[attacker_id] += float(actual_damage)`. Multiple attacks accumulate additively. Dead entities cleaned from all tables at end of tick
+- **NPC auto-attack:** After player events resolve, each living NPC with `base_attack_damage > 0` and non-empty threat table attacks the living player with highest accumulated threat. Uses same `apply_damage` helper with PHYSICAL damage type. Creates the boss-fight loop: players attack boss, boss retaliates against tank
+- **Inline death check:** After each damage application, checks `health <= 0` and marks `is_alive = false` immediately. Prevents double-damage to newly-dead entities within the same tick
+- **Result struct:** `CombatResult` with `attacks_processed`, `attacks_missed`, `kills`, `npc_attacks`, `total_damage_dealt` counters for telemetry and testing
+- **Telemetry:** Emits `"Damage dealt"` (with attacker_id, target_id, base_damage, actual_damage, damage_type, mitigation, target_health), `"Entity killed"` (with target_id, killer_id)
+- **Test strategy:** 26 GoogleTest cases in 8 groups: CombatEvent data (3), CombatState/Entity (3), damage application (3), attack validation (4), kill/death (3), threat table (3), NPC auto-attack (3), telemetry + integration (4)
+
 ### Entity (`src/server/world/entity.h`)
-- **Implementation:** `wow::Entity` represents a player's in-world avatar, keyed by `session_id`. Stores a `wow::Position` (3D float: x, y, z) and a `wow::CastState` for spell casting. Default position is origin (0, 0, 0)
+- **Implementation:** `wow::Entity` represents a player or NPC's in-world avatar. Players keyed by `session_id`, NPCs by NPC ID (convention: `>= 1,000,000`). Stores `wow::Position`, `wow::CastState`, and `wow::CombatState`. Default position is origin (0, 0, 0)
+- **EntityType enum:** `wow::EntityType` (`PLAYER`, `NPC`). Constructor defaults to PLAYER: `Entity(uint64_t id, EntityType type = EntityType::PLAYER)`. Accessed via `entity_type()`. NPCs participate in the same entity map as players
 - **Position struct:** `wow::Position` with `operator==`, `operator!=`, and `distance()` free function (Euclidean distance)
-- **CastState struct:** Per-entity spell casting state with `is_casting`, `spell_id`, `cast_ticks_remaining`, `gcd_expires_tick`, and `moved_this_tick` flag. Accessed via mutable/const `cast_state()` accessors. Owned by game thread alongside Position — avoids circular dependency with events/
-- **MVP simplification:** Entity keyed by session_id — one entity per player. NPCs with independent entity IDs deferred to Step 8 (combat)
+- **CastState struct:** Per-entity spell casting state with `is_casting`, `spell_id`, `cast_ticks_remaining`, `gcd_expires_tick`, and `moved_this_tick` flag. Accessed via mutable/const `cast_state()` accessors
+- **CombatState struct:** Per-entity combat state with `health` (int32_t, default 100), `max_health`, `armor` (physical mitigation, 0.0–0.75), `resistance` (magical mitigation, 0.0–0.75), `is_alive`, `base_attack_damage` (NPC auto-attack, 0 for players), and `threat_table` (`unordered_map<uint64_t, float>`). Accessed via mutable/const `combat_state()` accessors
 - **Entity map:** `std::unordered_map<uint64_t, Entity>` owned by the game thread. Not mutex-protected (single-owner design)
-- **Test strategy:** 3 GoogleTest cases for entity basics + 3 for CastState (default values, mutable access, moved_this_tick flag)
+- **Test strategy:** 3 GoogleTest cases for entity basics + 3 for CastState + 3 for CombatState/EntityType
 
 ### Zone (Self-Contained Processing Unit)
 - **Responsibility:** Owns its session registry, entity list, event queue, tick pipeline

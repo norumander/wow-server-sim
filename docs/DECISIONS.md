@@ -264,3 +264,27 @@
 - GCD semantics use absolute tick numbers, avoiding timer drift
 - SpellCastResult struct enables rich telemetry without requiring log parsing in tests
 - Instant casts are a natural special case, not a separate code path
+
+---
+
+## ADR-016: Combat System — Damage, Threat, and NPC Auto-Attack
+
+**Date:** 2026-02-23
+**Status:** Accepted
+
+**Context:** Need combat mechanics (damage calculation, threat tracking, NPC targeting) that demonstrate WoW domain knowledge and create meaningful fault injection scenarios. Key design decisions: where to store combat state, damage formula, threat model, NPC auto-attack strategy, and death handling within a single tick.
+
+**Decision:**
+1. **CombatState struct in entity.h** alongside Position and CastState — all per-entity state owned by the game thread. Uses `int32_t` health (not unsigned) to avoid underflow on damage, simplifying death check (`health <= 0`). Includes `threat_table` (`unordered_map<uint64_t, float>`) — each entity tracks who has threat on it (WoW model: each mob has its own threat list).
+2. **EntityType enum (PLAYER/NPC)** on Entity with default PLAYER — existing code unaffected. NPC entities added to the same entity map using NPC IDs (convention: `>= 1,000,000`).
+3. **DamageType enum (PHYSICAL/MAGICAL)** selects mitigation: PHYSICAL → armor, MAGICAL → resistance. Formula: `actual = round(base * (1 - clamp(mitigation, 0, 0.75)))`. `kMaxMitigation = 0.75f` prevents full immunity.
+4. **Threat = damage dealt (no modifiers)** per ADR-012. Accumulates additively across attacks. Dead entities cleaned from all threat tables at end of tick.
+5. **3-step processing order:** process ATTACK events → NPC auto-attack → clean up dead from threat tables. Inline death check after each damage application prevents double-damage to newly-dead entities within the same tick.
+6. **NPC auto-attack:** After player events resolve, each living NPC with `base_attack_damage > 0` attacks the highest-threat living target. Uses same damage pipeline (mitigation, death check, telemetry). Creates the classic boss-fight loop: players attack boss, boss retaliates against tank.
+
+**Consequences:**
+- CombatState on Entity follows the same pattern as CastState — consistent, testable, no circular dependencies
+- EntityType enables NPCs without architectural change — same entity map, same processors
+- Inline death checking prevents exploit where multiple attacks kill an already-dead entity in the same tick
+- NPC auto-attack using threat table creates emergent gameplay (tank/DPS/threat management) that produces interesting fault scenarios (what happens when tank disconnects?)
+- Threat cleanup at end of tick is O(entities * threat_table_size) but acceptable for MVP scale
