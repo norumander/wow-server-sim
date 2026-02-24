@@ -312,3 +312,24 @@ class TestComputeSuggestion:
 
         result = compute_suggestion(players=5, active_faults=0, status="healthy", pipeline_ran=True)
         assert "s" in result.lower() or "q" in result.lower()
+
+
+# ---------------------------------------------------------------------------
+# Group J: Spawn clients keybinding (2 tests)
+# ---------------------------------------------------------------------------
+
+
+class TestSpawnClientsBinding:
+    """Dashboard has 's' keybinding that triggers spawn action."""
+
+    def test_binding_registered(self) -> None:
+        from wowsim.dashboard import WoWDashboardApp
+
+        keys = [b[0] if isinstance(b, tuple) else b.key for b in WoWDashboardApp.BINDINGS]
+        assert "s" in keys
+
+    def test_action_method_exists(self) -> None:
+        from wowsim.dashboard import WoWDashboardApp
+
+        assert hasattr(WoWDashboardApp, "action_spawn_clients")
+        assert callable(getattr(WoWDashboardApp, "action_spawn_clients"))
