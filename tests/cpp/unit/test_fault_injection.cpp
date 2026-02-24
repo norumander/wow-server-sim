@@ -396,3 +396,60 @@ TEST(FaultRegistry, MultipleFaultsComposeInPreTick) {
     // Event flood fires: 2 entities * 5 multiplier = 10 events
     EXPECT_GE(zone.event_queue_depth(), 10u);
 }
+
+// =============================================================================
+// Group I: CascadingZoneFailureFault F5 (4 tests)
+// =============================================================================
+
+TEST(CascadingZoneFailureFault, IdAndModeCorrect) {
+    CascadingZoneFailureFault fault;
+    EXPECT_EQ(fault.id(), "cascading-zone-failure");
+    EXPECT_EQ(fault.mode(), FaultMode::TICK_SCOPED);
+}
+
+TEST(CascadingZoneFailureFault, SourceZoneCrashesViaException) {
+    CascadingZoneFailureFault fault;
+    FaultConfig config;
+    config.params = {{"source_zone", 1}, {"target_zone", 2}};
+    fault.activate(config);
+
+    Zone source(ZoneConfig{1, "Source Zone"});
+    source.add_entity(Entity(100));
+
+    // on_tick in source zone should throw to crash the zone
+    EXPECT_THROW(fault.on_tick(1, &source), std::runtime_error);
+}
+
+TEST(CascadingZoneFailureFault, TargetZoneFloodedAfterSourceCrash) {
+    CascadingZoneFailureFault fault;
+    FaultConfig config;
+    config.params = {{"source_zone", 1}, {"target_zone", 2}, {"flood_multiplier", 10}};
+    fault.activate(config);
+
+    Zone source(ZoneConfig{1, "Source Zone"});
+    source.add_entity(Entity(100));
+
+    // First: crash the source zone
+    try { fault.on_tick(1, &source); } catch (...) {}
+
+    // Now tick in the target zone — should flood with events
+    Zone target(ZoneConfig{2, "Target Zone"});
+    target.add_entity(Entity(200));
+    target.add_entity(Entity(201));
+
+    fault.on_tick(1, &target);
+
+    // 2 entities * 10 flood_multiplier = 20 events
+    EXPECT_GE(target.event_queue_depth(), 20u);
+}
+
+TEST(CascadingZoneFailureFault, InactiveIsNoOp) {
+    CascadingZoneFailureFault fault;
+    // Not activated
+    Zone zone(ZoneConfig{1, "Test Zone"});
+    zone.add_entity(Entity(100));
+
+    // Should not throw or inject events
+    EXPECT_NO_THROW(fault.on_tick(1, &zone));
+    EXPECT_EQ(zone.event_queue_depth(), 0u);
+}
