@@ -1,4 +1,4 @@
-"""Pydantic models for server telemetry entries, analysis results, and control channel protocol."""
+"""Pydantic models for telemetry, analysis, and control channel protocol."""
 
 from __future__ import annotations
 

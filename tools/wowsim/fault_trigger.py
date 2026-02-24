@@ -40,7 +40,7 @@ def parse_duration(duration_str: str) -> int:
         ValueError: If the string is empty or has no recognized suffix.
     """
     if not duration_str:
-        raise ValueError(f"Empty duration string")
+        raise ValueError("Empty duration string")
 
     if duration_str.endswith("s"):
         try:
@@ -61,7 +61,8 @@ def parse_duration(duration_str: str) -> int:
         return ticks
 
     raise ValueError(
-        f"Invalid duration: {duration_str!r} — must end with 's' (seconds) or 't' (ticks)"
+        f"Invalid duration: {duration_str!r}"
+        " — must end with 's' (seconds) or 't' (ticks)"
     )
 
 
@@ -168,9 +169,7 @@ class ControlClient:
 # ---------------------------------------------------------------------------
 
 
-def _run_command(
-    host: str, port: int, coro_factory: Any
-) -> ControlResponse:
+def _run_command(host: str, port: int, coro_factory: Any) -> ControlResponse:
     """Run an async command in a fresh event loop."""
 
     async def _run() -> ControlResponse:
@@ -202,9 +201,7 @@ def activate_fault(
     )
 
 
-def deactivate_fault(
-    host: str, port: int, fault_id: str
-) -> ControlResponse:
+def deactivate_fault(host: str, port: int, fault_id: str) -> ControlResponse:
     """Deactivate a specific fault (sync wrapper)."""
     return _run_command(host, port, lambda c: c.deactivate(fault_id))
 

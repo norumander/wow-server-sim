@@ -270,10 +270,10 @@ class TestCLIActivateSuccess:
             cli_main,
             [
                 "inject-fault",
-                "activate",
-                "latency-spike",
                 "--port",
                 str(port),
+                "activate",
+                "latency-spike",
                 "--delay-ms",
                 "200",
             ],
@@ -290,7 +290,7 @@ class TestCLIListShowsFaults:
         port = mock_control_server["port"]
         runner = CliRunner()
         result = runner.invoke(
-            cli_main, ["inject-fault", "list", "--port", str(port)]
+            cli_main, ["inject-fault", "--port", str(port), "list"]
         )
         assert result.exit_code == 0, result.output
         assert "latency-spike" in result.output
@@ -304,7 +304,7 @@ class TestCLIConnectionRefusedError:
         runner = CliRunner()
         result = runner.invoke(
             cli_main,
-            ["inject-fault", "list", "--port", "1"],
+            ["inject-fault", "--port", "1", "list"],
         )
         assert result.exit_code != 0
         assert "error" in result.output.lower() or result.exception is not None

@@ -36,10 +36,144 @@ def health() -> None:
     click.echo("health: not yet implemented")
 
 
-@main.command("inject-fault")
-def inject_fault() -> None:
-    """Inject a fault scenario into the running server."""
-    click.echo("inject-fault: not yet implemented")
+@main.group("inject-fault")
+@click.option("--host", default="localhost", help="Control channel host.")
+@click.option("--port", default=8081, type=int, help="Control channel port.")
+@click.pass_context
+def inject_fault(ctx: click.Context, host: str, port: int) -> None:
+    """Inject fault scenarios into the running server."""
+    ctx.ensure_object(dict)
+    ctx.obj["host"] = host
+    ctx.obj["port"] = port
+
+
+@inject_fault.command()
+@click.argument("fault_id")
+@click.option("--delay-ms", type=int, default=None, help="Latency spike delay (ms).")
+@click.option("--megabytes", type=int, default=None, help="Memory pressure size (MB).")
+@click.option("--multiplier", type=int, default=None, help="Event flood multiplier.")
+@click.option("--duration", default=None, help="Duration: e.g. '5s' or '100t'.")
+@click.option(
+    "--zone", "target_zone_id", type=int, default=0, help="Target zone (0=all)."
+)
+@click.pass_context
+def activate(
+    ctx: click.Context,
+    fault_id: str,
+    delay_ms: int | None,
+    megabytes: int | None,
+    multiplier: int | None,
+    duration: str | None,
+    target_zone_id: int,
+) -> None:
+    """Activate a fault by ID (e.g. latency-spike, session-crash)."""
+    from wowsim.fault_trigger import (
+        ControlClientError,
+        activate_fault,
+        parse_duration,
+    )
+
+    params: dict[str, int] = {}
+    if delay_ms is not None:
+        params["delay_ms"] = delay_ms
+    if megabytes is not None:
+        params["megabytes"] = megabytes
+    if multiplier is not None:
+        params["multiplier"] = multiplier
+
+    duration_ticks = 0
+    if duration is not None:
+        try:
+            duration_ticks = parse_duration(duration)
+        except ValueError as exc:
+            raise click.ClickException(str(exc))
+
+    try:
+        resp = activate_fault(
+            ctx.obj["host"],
+            ctx.obj["port"],
+            fault_id,
+            params=params,
+            target_zone_id=target_zone_id,
+            duration_ticks=duration_ticks,
+        )
+        click.echo(f"Activated {resp.fault_id}")
+    except ControlClientError as exc:
+        raise click.ClickException(str(exc))
+    except OSError as exc:
+        raise click.ClickException(f"Connection error: {exc}")
+
+
+@inject_fault.command()
+@click.argument("fault_id")
+@click.pass_context
+def deactivate(ctx: click.Context, fault_id: str) -> None:
+    """Deactivate a specific fault by ID."""
+    from wowsim.fault_trigger import ControlClientError, deactivate_fault
+
+    try:
+        resp = deactivate_fault(ctx.obj["host"], ctx.obj["port"], fault_id)
+        click.echo(f"Deactivated {resp.fault_id}")
+    except ControlClientError as exc:
+        raise click.ClickException(str(exc))
+    except OSError as exc:
+        raise click.ClickException(f"Connection error: {exc}")
+
+
+@inject_fault.command("deactivate-all")
+@click.pass_context
+def deactivate_all(ctx: click.Context) -> None:
+    """Deactivate all active faults."""
+    from wowsim.fault_trigger import ControlClientError, deactivate_all_faults
+
+    try:
+        deactivate_all_faults(ctx.obj["host"], ctx.obj["port"])
+        click.echo("All faults deactivated")
+    except ControlClientError as exc:
+        raise click.ClickException(str(exc))
+    except OSError as exc:
+        raise click.ClickException(f"Connection error: {exc}")
+
+
+@inject_fault.command()
+@click.argument("fault_id")
+@click.pass_context
+def status(ctx: click.Context, fault_id: str) -> None:
+    """Show status of a specific fault."""
+    from wowsim.fault_trigger import ControlClientError, fault_status, format_fault_info
+
+    try:
+        resp = fault_status(ctx.obj["host"], ctx.obj["port"], fault_id)
+        if resp.status:
+            click.echo(format_fault_info(resp.status))
+        else:
+            click.echo(f"No status returned for {fault_id}")
+    except ControlClientError as exc:
+        raise click.ClickException(str(exc))
+    except OSError as exc:
+        raise click.ClickException(f"Connection error: {exc}")
+
+
+@inject_fault.command("list")
+@click.pass_context
+def list_faults(ctx: click.Context) -> None:
+    """List all registered faults and their status."""
+    from wowsim.fault_trigger import (
+        ControlClientError,
+        format_fault_list,
+        list_all_faults,
+    )
+
+    try:
+        resp = list_all_faults(ctx.obj["host"], ctx.obj["port"])
+        if resp.faults:
+            click.echo(format_fault_list(resp.faults))
+        else:
+            click.echo("No faults registered")
+    except ControlClientError as exc:
+        raise click.ClickException(str(exc))
+    except OSError as exc:
+        raise click.ClickException(f"Connection error: {exc}")
 
 
 @main.command("parse-logs")
