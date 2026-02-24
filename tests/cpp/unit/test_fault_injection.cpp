@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include <chrono>
 #include <sstream>
 #include <string>
 
@@ -138,4 +139,170 @@ TEST(FaultRegistry, ActivateAndDeactivateEmitTelemetry) {
     EXPECT_NE(output.find("Fault deactivated"), std::string::npos);
 
     Logger::reset();
+}
+
+// =============================================================================
+// Group D: LatencySpikeFault F1 (3 tests)
+// =============================================================================
+
+TEST(LatencySpikeFault, IdAndModeCorrect) {
+    LatencySpikeFault fault;
+    EXPECT_EQ(fault.id(), "latency-spike");
+    EXPECT_EQ(fault.mode(), FaultMode::TICK_SCOPED);
+}
+
+TEST(LatencySpikeFault, ActivateDeactivateLifecycle) {
+    LatencySpikeFault fault;
+    EXPECT_FALSE(fault.is_active());
+
+    FaultConfig config;
+    EXPECT_TRUE(fault.activate(config));
+    EXPECT_TRUE(fault.is_active());
+
+    fault.deactivate();
+    EXPECT_FALSE(fault.is_active());
+}
+
+TEST(LatencySpikeFault, OnTickIntroducesDelay) {
+    LatencySpikeFault fault;
+    FaultConfig config;
+    config.params = {{"delay_ms", 50}};
+    fault.activate(config);
+
+    Zone zone(ZoneConfig{1, "Test Zone"});
+
+    auto start = std::chrono::steady_clock::now();
+    fault.on_tick(1, &zone);
+    auto end = std::chrono::steady_clock::now();
+
+    auto elapsed_ms = std::chrono::duration<double, std::milli>(end - start).count();
+    EXPECT_GE(elapsed_ms, 50.0);
+}
+
+// =============================================================================
+// Group E: SessionCrashFault F2 (4 tests)
+// =============================================================================
+
+TEST(SessionCrashFault, IdAndModeCorrect) {
+    SessionCrashFault fault;
+    EXPECT_EQ(fault.id(), "session-crash");
+    EXPECT_EQ(fault.mode(), FaultMode::TICK_SCOPED);
+}
+
+TEST(SessionCrashFault, RemovesEntityFromZone) {
+    SessionCrashFault fault;
+    FaultConfig config;
+    fault.activate(config);
+
+    Zone zone(ZoneConfig{1, "Test Zone"});
+    zone.add_entity(Entity(100));
+    zone.add_entity(Entity(101));
+    zone.add_entity(Entity(102));
+    ASSERT_EQ(zone.entity_count(), 3u);
+
+    fault.on_tick(1, &zone);
+    EXPECT_EQ(zone.entity_count(), 2u);
+}
+
+TEST(SessionCrashFault, FiresOncePerActivation) {
+    SessionCrashFault fault;
+    FaultConfig config;
+    fault.activate(config);
+
+    Zone zone(ZoneConfig{1, "Test Zone"});
+    zone.add_entity(Entity(100));
+    zone.add_entity(Entity(101));
+    zone.add_entity(Entity(102));
+
+    fault.on_tick(1, &zone);
+    EXPECT_EQ(zone.entity_count(), 2u);
+
+    // Second on_tick should NOT remove another entity
+    fault.on_tick(2, &zone);
+    EXPECT_EQ(zone.entity_count(), 2u);
+}
+
+TEST(SessionCrashFault, EmptyZoneDoesNotCrash) {
+    SessionCrashFault fault;
+    FaultConfig config;
+    fault.activate(config);
+
+    Zone zone(ZoneConfig{1, "Test Zone"});
+    ASSERT_EQ(zone.entity_count(), 0u);
+
+    // Should not crash or throw
+    fault.on_tick(1, &zone);
+    EXPECT_EQ(zone.entity_count(), 0u);
+}
+
+// =============================================================================
+// Group F: EventQueueFloodFault F3 (3 tests)
+// =============================================================================
+
+TEST(EventQueueFloodFault, IdAndModeCorrect) {
+    EventQueueFloodFault fault;
+    EXPECT_EQ(fault.id(), "event-queue-flood");
+    EXPECT_EQ(fault.mode(), FaultMode::TICK_SCOPED);
+}
+
+TEST(EventQueueFloodFault, InjectsEventsPerEntity) {
+    EventQueueFloodFault fault;
+    FaultConfig config;
+    config.params = {{"multiplier", 10}};
+    fault.activate(config);
+
+    Zone zone(ZoneConfig{1, "Test Zone"});
+    zone.add_entity(Entity(100));
+    zone.add_entity(Entity(101));
+
+    fault.on_tick(1, &zone);
+
+    // 2 entities * 10 multiplier = 20 events
+    EXPECT_GE(zone.event_queue_depth(), 20u);
+}
+
+TEST(EventQueueFloodFault, CustomMultiplierFromConfig) {
+    EventQueueFloodFault fault;
+    FaultConfig config;
+    config.params = {{"multiplier", 5}};
+    fault.activate(config);
+
+    Zone zone(ZoneConfig{1, "Test Zone"});
+    zone.add_entity(Entity(100));
+    zone.add_entity(Entity(101));
+
+    fault.on_tick(1, &zone);
+
+    // 2 entities * 5 multiplier = 10 events
+    EXPECT_GE(zone.event_queue_depth(), 10u);
+}
+
+// =============================================================================
+// Group G: MemoryPressureFault F4 (3 tests)
+// =============================================================================
+
+TEST(MemoryPressureFault, IdAndModeCorrect) {
+    MemoryPressureFault fault;
+    EXPECT_EQ(fault.id(), "memory-pressure");
+    EXPECT_EQ(fault.mode(), FaultMode::AMBIENT);
+}
+
+TEST(MemoryPressureFault, AllocatesOnActivation) {
+    MemoryPressureFault fault;
+    FaultConfig config;
+    config.params = {{"megabytes", 1}};
+    fault.activate(config);
+
+    EXPECT_GE(fault.bytes_allocated(), 1u * 1024u * 1024u);
+}
+
+TEST(MemoryPressureFault, ReleasesOnDeactivation) {
+    MemoryPressureFault fault;
+    FaultConfig config;
+    config.params = {{"megabytes", 1}};
+    fault.activate(config);
+    ASSERT_GE(fault.bytes_allocated(), 1u * 1024u * 1024u);
+
+    fault.deactivate();
+    EXPECT_EQ(fault.bytes_allocated(), 0u);
 }
