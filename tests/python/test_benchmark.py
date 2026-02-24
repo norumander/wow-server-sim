@@ -375,3 +375,179 @@ class TestOverallEvalPartialFail:
         passed, message = evaluate_benchmark(scenarios)
         assert passed is False
         assert "100" in message
+
+
+# ============================================================
+# Group F: Formatting (2 tests)
+# ============================================================
+
+
+def _make_passing_scenario(count: int = 50) -> "ScenarioResult":
+    """Helper: a passing ScenarioResult."""
+    from wowsim.models import PercentileStats, ScenarioResult, TickHealth
+
+    tick = TickHealth(
+        total_ticks=200,
+        avg_duration_ms=3.5,
+        max_duration_ms=8.0,
+        min_duration_ms=1.0,
+        overrun_count=0,
+        overrun_pct=0.0,
+    )
+    percentiles = PercentileStats(
+        p50_ms=3.5, p95_ms=6.0, p99_ms=8.2, jitter_ms=1.0
+    )
+    return ScenarioResult(
+        client_count=count,
+        tick_health=tick,
+        percentiles=percentiles,
+        throughput_actions_per_sec=100.0,
+        passed=True,
+        message="All thresholds met",
+    )
+
+
+class TestFormatScenarioResult:
+    """format_scenario_result produces a one-line summary."""
+
+    def test_format_pass(self) -> None:
+        from wowsim.benchmark import format_scenario_result
+
+        scenario = _make_passing_scenario(50)
+        text = format_scenario_result(scenario)
+        assert "PASS" in text
+        assert "50" in text
+        assert "3.5" in text
+        assert "8.2" in text
+
+
+class TestFormatBenchmarkResult:
+    """format_benchmark_result produces a multi-line report."""
+
+    def test_format(self) -> None:
+        from wowsim.benchmark import format_benchmark_result
+        from wowsim.models import BenchmarkConfig, BenchmarkResult
+
+        config = BenchmarkConfig(client_counts=[0, 50])
+        result = BenchmarkResult(
+            config=config,
+            scenarios=[_make_passing_scenario(0), _make_passing_scenario(50)],
+            overall_passed=True,
+            summary_message="All scenarios passed (max 50 clients)",
+            total_duration_seconds=25.0,
+        )
+        text = format_benchmark_result(result)
+        assert "Benchmark" in text
+        assert "PASS" in text
+        assert "50" in text
+        assert "25.0" in text or "25.00" in text
+
+
+# ============================================================
+# Group G: Orchestration with monkeypatch (3 tests)
+# ============================================================
+
+
+def _make_tick_entries_for_health(
+    count: int = 200, avg_ms: float = 3.5
+) -> list:
+    """Build tick entries for orchestrator tests."""
+    return _make_tick_entries([avg_ms] * count)
+
+
+class TestOrchestratorHappyPath:
+    """run_benchmark passes all scenarios when server is healthy."""
+
+    def test_happy_path(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from wowsim import benchmark
+        from wowsim.models import BenchmarkConfig, ClientConfig, SpawnResult
+
+        entries = _make_tick_entries_for_health(200, 3.5)
+        spawn = SpawnResult(
+            total_clients=10,
+            successful_connections=10,
+            failed_connections=0,
+            total_actions_sent=100,
+            total_duration_seconds=10.0,
+            clients=[],
+        )
+
+        monkeypatch.setattr(benchmark, "_spawn_clients", lambda _cfg, _n: spawn)
+        monkeypatch.setattr(benchmark, "_read_telemetry", lambda _cfg: entries)
+        monkeypatch.setattr(benchmark, "_settle", lambda _s: None)
+
+        config = BenchmarkConfig(
+            client_counts=[0, 10],
+            duration_seconds=1.0,
+            settle_seconds=0.0,
+        )
+        result = benchmark.run_benchmark(config)
+        assert result.overall_passed is True
+        assert len(result.scenarios) == 2
+
+
+class TestOrchestratorFailAt100:
+    """run_benchmark fails when 100-client scenario exceeds thresholds."""
+
+    def test_fail_at_100(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from wowsim import benchmark
+        from wowsim.models import BenchmarkConfig, SpawnResult
+
+        good_entries = _make_tick_entries_for_health(200, 3.5)
+        bad_entries = _make_tick_entries_for_health(200, 60.0)
+        spawn = SpawnResult(
+            total_clients=10,
+            successful_connections=10,
+            failed_connections=0,
+            total_actions_sent=100,
+            total_duration_seconds=10.0,
+            clients=[],
+        )
+
+        call_count = {"n": 0}
+
+        def mock_read(_cfg):
+            call_count["n"] += 1
+            if call_count["n"] <= 2:
+                return good_entries
+            return bad_entries
+
+        monkeypatch.setattr(benchmark, "_spawn_clients", lambda _cfg, _n: spawn)
+        monkeypatch.setattr(benchmark, "_read_telemetry", mock_read)
+        monkeypatch.setattr(benchmark, "_settle", lambda _s: None)
+
+        config = BenchmarkConfig(
+            client_counts=[0, 10, 100],
+            duration_seconds=1.0,
+            settle_seconds=0.0,
+        )
+        result = benchmark.run_benchmark(config)
+        assert result.overall_passed is False
+        assert any(not s.passed for s in result.scenarios)
+
+
+class TestOrchestratorBaselineSkipsSpawn:
+    """run_benchmark skips client spawn for count=0 (baseline)."""
+
+    def test_baseline(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from wowsim import benchmark
+        from wowsim.models import BenchmarkConfig
+
+        entries = _make_tick_entries_for_health(200, 3.5)
+        spawn_called = {"count": 0}
+
+        def mock_spawn(_cfg, _n):
+            spawn_called["count"] += 1
+
+        monkeypatch.setattr(benchmark, "_spawn_clients", mock_spawn)
+        monkeypatch.setattr(benchmark, "_read_telemetry", lambda _cfg: entries)
+        monkeypatch.setattr(benchmark, "_settle", lambda _s: None)
+
+        config = BenchmarkConfig(
+            client_counts=[0],
+            duration_seconds=1.0,
+            settle_seconds=0.0,
+        )
+        result = benchmark.run_benchmark(config)
+        assert spawn_called["count"] == 0
+        assert len(result.scenarios) == 1
