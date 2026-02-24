@@ -476,3 +476,28 @@ Tick ordering: `control.process_pending_commands()` → `registry.on_tick(tick)`
 - 20 pytest cases cover models, gate functions, formatting, orchestration, and CLI
 - Pipeline is demonstrable with the live server: activate a latency spike, watch canary detect it, observe rollback
 - Sync orchestrator with `time.sleep()` polling is simple and sufficient — no async complexity needed for a deployment pipeline
+
+---
+
+## ADR-025: Advanced Fault Scenarios — Multi-Phase State Machines on Existing Framework
+
+**Date:** 2026-02-24
+**Status:** Accepted
+
+**Context:** The PRD and CLAUDE.md require four advanced failure scenarios (F5-F8) that demonstrate multi-zone, cascading, and temporal failure patterns. The existing fault framework supports TICK_SCOPED faults that receive a `Zone*` in `on_tick()`, providing access to `add_entity()`, `remove_entity()`, `push_event()`, `entities()`, `zone_id()`, and `entity_count()`.
+
+**Decision:** Implement all four advanced faults as TICK_SCOPED faults with internal multi-phase state machines. No framework changes needed — each fault uses `zone->zone_id()` to differentiate behavior across zones and internal state to track phases:
+
+1. **F5 CascadingZoneFailureFault** — Phase 1: throw `std::runtime_error` in source zone (crashes via exception guard). Phase 2: flood target zone with synthetic events (reuses F3 pattern). Demonstrates cascading failure across zone boundaries.
+2. **F6 SlowLeakFault** — Increment-and-sleep pattern with configurable step size and frequency. Simulates gradual degradation. Detection via linearly growing tick duration in telemetry.
+3. **F7 SplitBrainFault** — Create phantom NPC entities in each zone, inject zone-dependent movement (odd=east, even=north). Same entity ID at different positions across zones = state divergence.
+4. **F8 ThunderingHerdFault** — Phase 1: remove all PLAYER entities (NPCs preserved). Phase 2: re-add all stored players simultaneously after delay. Intentionally bypasses ZoneManager's session_zone_map to create realistic chaos.
+
+**Consequences:**
+- Zero framework changes — all four faults compose with existing `Fault` base class, `FaultRegistry`, control channel, and Python CLI
+- Multi-phase state machines are self-contained within each fault class — no coupling between faults
+- F5's exception throw is caught by the existing zone exception guard — zone goes CRASHED, other zones continue
+- F7's phantom entities remain inert after deactivation (no events injected when inactive) — harmless cleanup
+- F8 intentionally creates inconsistency between ZoneManager state and zone entities, producing "unknown session" errors that serve as the detection signal
+- All faults configurable via JSON params, activatable via control channel at runtime
+- 14 new GoogleTest cases (total 264) cover all four faults with no regressions

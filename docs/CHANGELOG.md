@@ -7,6 +7,13 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- Advanced fault scenarios F5-F8 in `src/server/fault/scenarios.h/.cpp`:
+  - F5 CascadingZoneFailureFault: crashes source zone via exception, floods target zone with synthetic events. Configurable source_zone, target_zone, flood_multiplier
+  - F6 SlowLeakFault: incrementing tick processing delay over time. Configurable increment_ms, increment_every. `current_delay_ms()` accessor
+  - F7 SplitBrainFault: phantom NPC entities with zone-dependent divergent positions. Configurable phantom_count, phantom_base_id
+  - F8 ThunderingHerdFault: mass player disconnect then simultaneous reconnect after delay. Configurable reconnect_delay_ticks. NPCs preserved
+- All F5-F8 faults registered in `main.cpp` — available via control channel at runtime (`wowsim inject-fault activate <id>`)
+- 14 new GoogleTest cases for F5-F8 covering ID/mode, multi-phase behavior, zone interaction, and reset. Total: 264 C++ tests passing
 - Hotfix deployment pipeline (`wowsim.pipeline`): staged build → validate → canary → promote/rollback lifecycle composing health_check and fault_trigger modules. Fault-as-deployment metaphor maps fault activation to deploy and deactivation to fix (ADR-024)
 - `PipelineConfig`, `StageResult`, `PipelineResult` Pydantic v2 models in `wowsim.models` — configuration, per-stage outcomes, and full pipeline results with JSON serialization
 - `deploy` CLI command: `wowsim deploy --fault-id <id> --action activate|deactivate` with canary duration/interval, rollback threshold, fault params, and text/json output
