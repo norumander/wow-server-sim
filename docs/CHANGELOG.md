@@ -7,6 +7,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- Fault trigger client (`wowsim.fault_trigger`): async TCP client (`ControlClient`) for the C++ control channel with sync wrappers for CLI use. Pydantic v2 models for the control channel protocol (5 request types, `FaultInfo`, `ControlResponse`). Duration parsing (`5s` → 100 ticks, `100t` → 100 ticks). Formatting helpers for fault status display (ADR-019)
+- `inject-fault` CLI subcommand group: `wowsim inject-fault activate FAULT_ID [--delay-ms, --megabytes, --multiplier, --duration, --zone]`, `deactivate FAULT_ID`, `deactivate-all`, `status FAULT_ID`, `list`. Group-level `--host`/`--port` options (default localhost:8081)
+- Mock TCP control server fixture in `tests/python/conftest.py`: threading-based, ephemeral port, canned responses by command type, records received requests
+- 20 pytest cases for fault trigger covering models (5), duration parsing (5), client commands (4), error handling (3), CLI integration (3)
 - Python log parser (`wowsim.log_parser`): parses JSONL telemetry files, filters by type/component/message, computes summaries (counts, time range, duration), and detects anomalies (latency spikes, zone crashes, error bursts, unexpected disconnects) with configurable thresholds
 - Pydantic v2 models (`wowsim.models`): `TelemetryEntry`, `LogSummary`, `Anomaly`, `ParseResult` — shared data models for all Python tools (ADR-018)
 - `parse-logs` CLI command: `wowsim parse-logs <FILE>` with `--type`, `--component`, `--message` filters, `--anomalies` flag, and `--format json|text` output. Supports stdin via `-`

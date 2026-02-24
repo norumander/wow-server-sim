@@ -233,7 +233,7 @@ AUTHENTICATING + DISCONNECT           → DISCONNECTING
 
 ### Python Tooling (`wowsim` CLI)
 - **Package:** Installable via `pip install -e tools/`, provides `wowsim` command
-- **Shared models:** `wowsim.models` — Pydantic v2 models for telemetry entries, summaries, anomalies (ADR-018)
+- **Shared models:** `wowsim.models` — Pydantic v2 models for telemetry entries, summaries, anomalies, and control channel protocol (ADR-018, ADR-019)
 - **Async strategy:** Async core, sync CLI surface via `asyncio.run()`
 
 ### Log Parser (`wowsim/log_parser.py`)
@@ -249,6 +249,18 @@ AUTHENTICATING + DISCONNECT           → DISCONNECTING
 - **CLI:** `wowsim parse-logs <FILE>` with `--type`, `--component`, `--message`, `--anomalies`, and `--format json|text` options
 - **Output:** Human-readable summary/anomaly tables (default), or structured JSON via `ParseResult.model_dump_json()`
 - **Test strategy:** 20 pytest cases in 6 groups: model parsing (3), file/stream parsing (3), filtering (4), summary (3), anomaly detection (5), CLI integration (2)
+
+### Fault Trigger Client (`wowsim/fault_trigger.py`)
+- **Responsibility:** TCP client for the C++ control channel, enabling operators to activate/deactivate faults at runtime
+- **Async core:** `ControlClient` uses `asyncio.open_connection` for non-blocking TCP I/O. Context manager (`async with`) for connection lifecycle. Five command methods: `activate`, `deactivate`, `deactivate_all`, `status`, `list_faults`
+- **Protocol:** Newline-delimited JSON over TCP. Request models (`FaultActivateRequest`, etc.) serialize via `model_dump()`. Responses parsed via `ControlResponse.model_validate_json()`
+- **Sync wrappers:** `activate_fault`, `deactivate_fault`, `deactivate_all_faults`, `fault_status`, `list_all_faults` — each opens a fresh connection via `asyncio.run()` for CLI one-shot use
+- **Duration parsing:** `parse_duration("5s")` → 100 ticks (5 × 20 Hz), `parse_duration("100t")` → 100 ticks. Abstracts tick rate from operators
+- **Error handling:** `ControlClientError` raised on `success=false` server responses. `OSError` propagated on connection failures
+- **Formatting:** `format_fault_info()` (one-line summary per fault), `format_fault_list()` (table with header)
+- **CLI:** `wowsim inject-fault` group with `--host`/`--port`, subcommands: `activate FAULT_ID [--delay-ms, --megabytes, --multiplier, --duration, --zone]`, `deactivate FAULT_ID`, `deactivate-all`, `status FAULT_ID`, `list`
+- **Reuse:** Async `ControlClient` designed for direct use by the Textual dashboard (Step 17) without blocking the event loop
+- **Test strategy:** 20 pytest cases in 5 groups: models (3+2), duration parsing (2+3), client commands (4), error handling (3), CLI integration (3). Mock TCP server fixture in conftest.py (threading-based, ephemeral port, canned responses)
 
 ## Concurrency Model
 

@@ -336,3 +336,26 @@ Tick ordering: `control.process_pending_commands()` → `registry.on_tick(tick)`
 - `ParseResult.model_dump_json()` provides free JSON output for `--format json` CLI flag
 - Test fixtures in conftest.py are shared across test modules, reducing duplication
 - Future tools (health check, fault trigger, mock client) import from `wowsim.models` directly
+
+---
+
+## ADR-019: Fault Trigger Client — Async TCP with Pydantic Protocol
+
+**Date:** 2026-02-24
+**Status:** Accepted
+
+**Context:** Step 13 needs a Python client for the C++ control channel (TCP, newline-delimited JSON) and a CLI surface (`wowsim inject-fault`) for operators to activate/deactivate faults at runtime. The client will also be reused by the future dashboard (Step 17) for live fault control.
+
+**Decision:**
+1. **Async core, sync CLI surface** (per ADR-010). `ControlClient` is an `async with`-compatible TCP client using `asyncio.open_connection`. Five sync wrapper functions (e.g., `activate_fault`) call `asyncio.run()` for CLI one-shot use.
+2. **Pydantic v2 models** for the control channel protocol: 5 request models (`FaultActivateRequest`, `FaultDeactivateRequest`, etc.), `FaultInfo` for per-fault status, and `ControlResponse` as a generic response envelope. Models serialize via `model_dump()` and deserialize via `model_validate_json()`.
+3. **Click subcommand group** replaces the `inject-fault` stub. Group-level `--host`/`--port` options, 5 subcommands (`activate`, `deactivate`, `deactivate-all`, `status`, `list`). Duration parsing (`5s` → 100 ticks, `100t` → 100 ticks) via `parse_duration()`.
+4. **Mock TCP server fixture** in conftest.py for testing: threading-based `socketserver.TCPServer` on ephemeral port 0, canned responses by command type, records received requests for assertion.
+5. **Error propagation:** `ControlClientError` raised on `success=false` responses. `OSError` for connection failures. Both caught in CLI and converted to `click.ClickException`.
+
+**Consequences:**
+- Async `ControlClient` is directly usable by the Textual dashboard (Step 17) without blocking the event loop
+- Pydantic models enforce protocol correctness at both serialization and deserialization boundaries
+- Mock server fixture enables fast, reliable unit tests without a running C++ server
+- Duration parsing abstracts the tick-rate constant (20 Hz) from operators
+- 20 pytest cases cover models, parsing, client commands, error handling, and CLI integration
