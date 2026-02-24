@@ -291,9 +291,42 @@ def parse_logs(
 
 
 @main.command("spawn-clients")
-def spawn_clients() -> None:
-    """Spawn simulated player clients."""
-    click.echo("spawn-clients: not yet implemented")
+@click.option("--count", default=10, type=int, help="Number of clients to spawn.")
+@click.option("--duration", default=10.0, type=float, help="Seconds per client.")
+@click.option("--host", default="localhost", help="Game server host.")
+@click.option("--port", default=8080, type=int, help="Game server port.")
+@click.option("--rate", default=2.0, type=float, help="Actions per second per client.")
+@click.option(
+    "--format",
+    "output_format",
+    type=click.Choice(["text", "json"]),
+    default="text",
+    help="Output format.",
+)
+def spawn_clients(
+    count: int,
+    duration: float,
+    host: str,
+    port: int,
+    rate: float,
+    output_format: str,
+) -> None:
+    """Spawn simulated player clients that generate game traffic."""
+    from wowsim.mock_client import format_spawn_result, run_spawn
+    from wowsim.models import ClientConfig
+
+    config = ClientConfig(
+        host=host,
+        port=port,
+        actions_per_second=rate,
+        duration_seconds=duration,
+    )
+    result = run_spawn(config, count)
+
+    if output_format == "json":
+        click.echo(result.model_dump_json(indent=2))
+    else:
+        click.echo(format_spawn_result(result))
 
 
 @main.command()

@@ -40,9 +40,7 @@ _DEFAULT_TARGET_ID: int = 1_000_001
 # ---------------------------------------------------------------------------
 
 
-def generate_movement_action(
-    client_id: int, x: float, y: float, z: float
-) -> dict:
+def generate_movement_action(client_id: int, x: float, y: float, z: float) -> dict:
     """Generate a movement event payload with small random delta.
 
     Position offsets: ±5 for x/y, ±0.5 for z.
@@ -250,3 +248,36 @@ async def spawn_clients(config: ClientConfig, count: int) -> SpawnResult:
 def run_spawn(config: ClientConfig, count: int) -> SpawnResult:
     """Synchronous wrapper around spawn_clients for CLI use."""
     return asyncio.run(spawn_clients(config, count))
+
+
+# ---------------------------------------------------------------------------
+# Formatting
+# ---------------------------------------------------------------------------
+
+
+def format_spawn_result(result: SpawnResult) -> str:
+    """Format spawn results as a human-readable table.
+
+    Includes summary header and per-client status lines.
+    """
+    lines: list[str] = []
+    lines.append("=== Mock Client Spawn Results ===")
+    lines.append(
+        f"Clients:     {result.total_clients} total, "
+        f"{result.successful_connections} connected, "
+        f"{result.failed_connections} failed"
+    )
+    lines.append(f"Actions:     {result.total_actions_sent} total")
+    lines.append(f"Duration:    {result.total_duration_seconds:.2f}s")
+    lines.append("")
+    lines.append("Per-client:")
+    for c in result.clients:
+        status = "connected" if c.connected else "FAILED"
+        line = (
+            f"  Client {c.client_id:<5d} {status:<12s}"
+            f" {c.actions_sent:>4d} actions  {c.duration_seconds:.2f}s"
+        )
+        if c.error:
+            line += f"  ({c.error})"
+        lines.append(line)
+    return "\n".join(lines)
