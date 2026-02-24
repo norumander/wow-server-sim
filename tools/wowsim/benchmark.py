@@ -8,9 +8,11 @@ pass/fail evaluation against configurable thresholds.
 from __future__ import annotations
 
 import math
+import time
 
 from wowsim.models import (
     BenchmarkConfig,
+    BenchmarkResult,
     PercentileStats,
     ScenarioResult,
     SpawnResult,
@@ -131,4 +133,136 @@ def evaluate_benchmark(
         False,
         f"Failed at {first_fail.client_count} clients "
         f"(max passing: {max_passing})",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Formatting (no I/O)
+# ---------------------------------------------------------------------------
+
+
+def format_scenario_result(result: ScenarioResult) -> str:
+    """One-line scenario summary: [PASS/FAIL] N clients — avg, p99, overrun%."""
+    tag = "PASS" if result.passed else "FAIL"
+    return (
+        f"[{tag}] {result.client_count} clients — "
+        f"avg {result.tick_health.avg_duration_ms:.1f}ms, "
+        f"p99 {result.percentiles.p99_ms:.1f}ms, "
+        f"{result.tick_health.overrun_pct:.1f}% overrun"
+    )
+
+
+def format_benchmark_result(result: BenchmarkResult) -> str:
+    """Multi-line benchmark report with header, per-scenario lines, and outcome."""
+    lines: list[str] = []
+    lines.append("=== Benchmark Report ===")
+    lines.append(
+        f"Clients: {result.config.client_counts}  "
+        f"Duration: {result.config.duration_seconds}s/scenario"
+    )
+    lines.append("")
+    lines.append("Scenarios:")
+    for scenario in result.scenarios:
+        lines.append(f"  {format_scenario_result(scenario)}")
+    lines.append("")
+    tag = "PASS" if result.overall_passed else "FAIL"
+    lines.append(f"Result: [{tag}] {result.summary_message}")
+    lines.append(f"Total:  {result.total_duration_seconds:.2f}s")
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# I/O wrappers (thin, mockable via monkeypatch)
+# ---------------------------------------------------------------------------
+
+
+def _spawn_clients(config: BenchmarkConfig, count: int) -> SpawnResult:
+    """Spawn N mock clients using the benchmark config's settings."""
+    from wowsim.mock_client import run_spawn
+    from wowsim.models import ClientConfig
+
+    client_config = ClientConfig(
+        host=config.game_host,
+        port=config.game_port,
+        actions_per_second=config.actions_per_second,
+        duration_seconds=config.duration_seconds,
+    )
+    return run_spawn(client_config, count)
+
+
+def _read_telemetry(config: BenchmarkConfig) -> list[TelemetryEntry]:
+    """Read recent telemetry entries from the log file."""
+    from pathlib import Path
+
+    from wowsim.health_check import read_recent_entries
+
+    if config.log_file is None:
+        return []
+    return read_recent_entries(Path(config.log_file), max_lines=2000)
+
+
+def _settle(seconds: float) -> None:
+    """Wait between scenarios for the server to stabilize."""
+    time.sleep(seconds)
+
+
+# ---------------------------------------------------------------------------
+# Orchestrator
+# ---------------------------------------------------------------------------
+
+
+def run_benchmark(config: BenchmarkConfig) -> BenchmarkResult:
+    """Run the full benchmark suite across all configured client counts.
+
+    For each client_count:
+    1. Spawn clients (skipped for count=0 baseline)
+    2. Settle (wait for server to stabilize)
+    3. Read telemetry and compute tick health + percentiles
+    4. Evaluate against thresholds
+    """
+    from wowsim.health_check import compute_tick_health
+
+    start = time.monotonic()
+    scenarios: list[ScenarioResult] = []
+
+    for count in config.client_counts:
+        throughput = 0.0
+
+        if count > 0:
+            spawn_result = _spawn_clients(config, count)
+            throughput = compute_throughput(spawn_result)
+
+        _settle(config.settle_seconds)
+
+        entries = _read_telemetry(config)
+        tick_health = compute_tick_health(entries)
+        percentiles = compute_percentiles(entries)
+
+        if tick_health is None:
+            tick_health = TickHealth(
+                total_ticks=0,
+                avg_duration_ms=0.0,
+                max_duration_ms=0.0,
+                min_duration_ms=0.0,
+                overrun_count=0,
+                overrun_pct=0.0,
+            )
+        if percentiles is None:
+            percentiles = PercentileStats(
+                p50_ms=0.0, p95_ms=0.0, p99_ms=0.0, jitter_ms=0.0
+            )
+
+        scenario = evaluate_scenario(
+            tick_health, percentiles, throughput, count, config
+        )
+        scenarios.append(scenario)
+
+    overall_passed, summary = evaluate_benchmark(scenarios)
+
+    return BenchmarkResult(
+        config=config,
+        scenarios=scenarios,
+        overall_passed=overall_passed,
+        summary_message=summary,
+        total_duration_seconds=time.monotonic() - start,
     )
