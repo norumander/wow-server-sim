@@ -80,13 +80,17 @@ int main(int argc, char* argv[])
     });
 
     // -----------------------------------------------------------------------
-    // 3. Fault Registry — register F1-F4 scenarios
+    // 3. Fault Registry — register F1-F8 scenarios
     // -----------------------------------------------------------------------
     wow::FaultRegistry fault_registry;
     fault_registry.register_fault(std::make_unique<wow::LatencySpikeFault>());
     fault_registry.register_fault(std::make_unique<wow::SessionCrashFault>());
     fault_registry.register_fault(std::make_unique<wow::EventQueueFloodFault>());
     fault_registry.register_fault(std::make_unique<wow::MemoryPressureFault>());
+    fault_registry.register_fault(std::make_unique<wow::CascadingZoneFailureFault>());
+    fault_registry.register_fault(std::make_unique<wow::SlowLeakFault>());
+    fault_registry.register_fault(std::make_unique<wow::SplitBrainFault>());
+    fault_registry.register_fault(std::make_unique<wow::ThunderingHerdFault>());
 
     wow::Logger::instance().event("server", "Fault registry initialized", {
         {"fault_count", fault_registry.fault_count()},
@@ -185,7 +189,7 @@ int main(int argc, char* argv[])
               << "  Control channel: port " << control.port() << "\n"
               << "  Tick rate:       20 Hz (50ms)\n"
               << "  Zones:           Elwynn Forest, Westfall\n"
-              << "  Faults:          F1-F4 registered\n"
+              << "  Faults:          F1-F8 registered\n"
               << "  Telemetry:       telemetry.jsonl\n"
               << "Press Ctrl+C to stop.\n"
               << std::flush;
