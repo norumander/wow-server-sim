@@ -1,5 +1,6 @@
 # Build artifacts
 build/
+build*/
 cmake-build-*/
 *.o
 *.obj
@@ -52,7 +53,7 @@ desktop.ini
 
 # Logs
 *.log
-telemetry/
+/telemetry/
 
 # Docker
 .docker/

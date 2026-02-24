@@ -9,8 +9,12 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-# Strict warnings (GCC/Clang on Linux Docker builds)
-add_compile_options(-Wall -Wextra -Werror)
+# Strict warnings — compiler-appropriate flags
+if(MSVC)
+    add_compile_options(/W4 /WX)
+else()
+    add_compile_options(-Wall -Wextra -Werror)
+endif()
 
 # ---------------------------------------------------------------------------
 # Dependencies via FetchContent
@@ -39,7 +43,8 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(nlohmann_json)
 
-# GoogleTest
+# GoogleTest — force shared CRT on Windows to avoid /MT vs /MD mismatch
+set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 FetchContent_Declare(
     googletest
     GIT_REPOSITORY https://github.com/google/googletest.git
@@ -53,13 +58,14 @@ FetchContent_MakeAvailable(googletest)
 # ---------------------------------------------------------------------------
 add_executable(wow-server-sim
     src/server/main.cpp
+    src/server/telemetry/logger.cpp
 )
 
 target_link_libraries(wow-server-sim
     PRIVATE
         asio
         nlohmann_json::nlohmann_json
-        pthread
+        $<$<NOT:$<BOOL:${WIN32}>>:pthread>
 )
 
 target_include_directories(wow-server-sim
