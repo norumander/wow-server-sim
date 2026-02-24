@@ -504,6 +504,31 @@ Tick ordering: `control.process_pending_commands()` → `registry.on_tick(tick)`
 
 ---
 
+## ADR-028: Docker Compose — Demo-Default with Server Profile
+
+**Date:** 2026-02-24
+**Status:** Accepted
+
+**Context:** Step 24 requires `docker compose up --build` to run the full demo
+with zero manual setup. The existing compose file only starts the server binary.
+Need to support both "one-command demo" (recruiter/reviewer) and "long-running
+server" (development/interactive).
+
+**Decision:** Use Docker Compose profiles. The `demo` service has no profile
+(runs by default) and overrides the entrypoint to `bash /app/scripts/demo.sh`.
+The `server` service uses `profiles: [server]` for opt-in standalone mode.
+`demo.sh` gains a fourth binary detection path (`$PROJECT_ROOT/wow-server-sim`)
+for the Docker layout, and the Dockerfile copies `scripts/` into the image.
+
+**Consequences:**
+- `docker compose up --build` runs the full demo — zero setup for evaluators
+- `docker compose --profile server up server` starts the server for development
+- Single Dockerfile, single compose file — no file proliferation
+- Demo runs server as a background child process with signal-safe cleanup
+- TTY allocation ensures colored output matches local `bash scripts/demo.sh`
+
+---
+
 ## ADR-026: Performance Benchmarks — Composing Existing Tools with Percentile Evaluation
 
 **Date:** 2026-02-24
