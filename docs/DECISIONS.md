@@ -288,3 +288,29 @@
 - Inline death checking prevents exploit where multiple attacks kill an already-dead entity in the same tick
 - NPC auto-attack using threat table creates emergent gameplay (tank/DPS/threat management) that produces interesting fault scenarios (what happens when tank disconnects?)
 - Threat cleanup at end of tick is O(entities * threat_table_size) but acceptable for MVP scale
+
+---
+
+## ADR-017: Control Channel Thread Safety — Command Queue Pattern
+
+**Date:** 2026-02-23
+**Status:** Accepted
+
+**Context:** The control channel (Step 11) runs a TCP server on its own Asio network thread, accepting JSON commands to activate/deactivate faults at runtime. The `FaultRegistry` is NOT thread-safe — it's accessed by the game thread (`on_tick`, `execute_pre_tick_faults`). Direct calls from the control channel's network thread would be a data race.
+
+**Decision:** Use a thread-safe `CommandQueue` (mutex + swap drain) as the sole shared state between the control channel's network thread and the game thread. The pattern mirrors `EventQueue` from ADR-009:
+
+1. **Network thread** parses incoming JSON lines, pushes `ControlCommand` structs (containing the parsed request and a response callback) into the `CommandQueue`
+2. **Game thread** calls `process_pending_commands()` once per tick to drain the queue and execute commands against the `FaultRegistry`
+3. **Response write-back** via the `on_complete` callback, which uses `asio::post()` to dispatch the response write back to the control channel's `io_context` (ensuring socket writes happen on the network thread)
+4. **JSON parse errors** are handled directly on the network thread (no queue round-trip needed) since they don't touch `FaultRegistry`
+
+Tick ordering: `control.process_pending_commands()` → `registry.on_tick(tick)` → `zone_manager.tick_all(tick)`
+
+**Consequences:**
+- `FaultRegistry` is only ever accessed by the game thread — no mutex needed on registry operations
+- `CommandQueue` is the only shared state, protected by a single mutex with brief critical sections
+- Same proven pattern as `EventQueue` — consistent codebase, easy to reason about
+- Response latency is bounded by tick interval (~50ms at 20 Hz) — acceptable for operator commands
+- `asio::post()` for response write-back ensures socket operations stay on the correct thread
+- Command execution is deterministic — processed in FIFO order at a known point in the tick cycle
