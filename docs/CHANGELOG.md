@@ -7,6 +7,11 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- Integration test infrastructure (`tests/python/integration/conftest.py`): telemetry line helpers and 6 scenario fixtures (normal operation, latency spike, session crash, zone crash, recovery arc, 50-player load) generating deterministic JSONL log files with 50ms tick-aligned timestamps
+- 6 connection lifecycle integration tests: client-to-mock-server connections, telemetry parsing for connection/disconnect events, player count estimation, server reachability, spawn-telemetry reconciliation, and 50-client stress test (PRD criterion 1)
+- 6 fault injection and recovery integration tests: activate + detect latency anomaly, deactivate + verify recovery, session crash disconnect anomalies, health status transitions (healthy → critical → healthy), zone crash detection in health report, and fault list/status/deactivate composition
+- 4 end-to-end integration tests: full 5-tool pipeline (spawn → activate → detect → deactivate → recover), 50-player stress with health report validation (HEALTHY, 50 players, 0 overruns), all fault scenarios (F1-F4) produce detectable telemetry, and health report format completeness
+- Full Python test suite: 78 existing + 16 integration = 94 tests passing
 - Mock client spawner (`wowsim.mock_client`): async TCP client that generates WoW-realistic game traffic with weighted action selection (50% movement, 30% spell cast, 20% combat). Spawns N concurrent simulated players via `asyncio.gather` with per-client failure isolation. Payloads match C++ event types exactly for protocol groundwork (ADR-021)
 - `ClientConfig`, `ClientResult`, `SpawnResult` Pydantic v2 models in `wowsim.models` — configuration, per-client outcomes, and aggregate spawn results with JSON serialization
 - `spawn-clients` CLI command: `wowsim spawn-clients --count 10 --duration 60 --host localhost --port 8080 --rate 2 --format text|json`. Replaces placeholder stub
