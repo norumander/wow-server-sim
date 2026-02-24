@@ -186,3 +186,47 @@ class SpawnResult(BaseModel):
     total_actions_sent: int
     total_duration_seconds: float
     clients: list[ClientResult]
+
+
+# ---------------------------------------------------------------------------
+# Hotfix Pipeline Models
+# ---------------------------------------------------------------------------
+
+
+class PipelineConfig(BaseModel):
+    """Configuration for a hotfix deployment pipeline run."""
+
+    version: str = "1.0.0"
+    fault_id: str
+    action: Literal["activate", "deactivate"]
+    params: dict[str, Any] = {}
+    target_zone_id: int = 0
+    duration_ticks: int = 0
+    canary_duration_seconds: float = 10.0
+    canary_poll_interval_seconds: float = 2.0
+    rollback_on: Literal["critical", "degraded"] = "critical"
+    game_host: str = "localhost"
+    game_port: int = 8080
+    control_host: str = "localhost"
+    control_port: int = 8081
+    log_file: str | None = None
+
+
+class StageResult(BaseModel):
+    """Outcome of a single pipeline stage."""
+
+    stage: Literal["build", "validate", "canary", "promote", "rollback"]
+    passed: bool
+    message: str
+    duration_seconds: float = 0.0
+    health_status: str | None = None
+    details: dict[str, Any] = {}
+
+
+class PipelineResult(BaseModel):
+    """Complete result from a pipeline run."""
+
+    config: PipelineConfig
+    stages: list[StageResult]
+    outcome: Literal["promoted", "rolled_back", "aborted"]
+    total_duration_seconds: float
