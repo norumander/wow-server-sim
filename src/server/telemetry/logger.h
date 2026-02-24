@@ -10,6 +10,10 @@
 
 namespace wow {
 
+/// Schema version for telemetry JSON entries. Increment when the entry
+/// format changes in a backwards-incompatible way.
+constexpr int kTelemetrySchemaVersion = 1;
+
 /// Types of telemetry log entries.
 enum class LogType {
     metric,

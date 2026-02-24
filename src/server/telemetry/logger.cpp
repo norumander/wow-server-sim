@@ -100,7 +100,7 @@ nlohmann::json Logger::format_entry(LogType type,
                                     const nlohmann::json& data)
 {
     nlohmann::json entry;
-    entry["v"] = 1;
+    entry["v"] = kTelemetrySchemaVersion;
     entry["timestamp"] = now_iso8601();
     entry["type"] = log_type_to_string(type);
     entry["component"] = std::string(component);
