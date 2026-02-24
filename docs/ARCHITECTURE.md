@@ -403,6 +403,31 @@ Each integration test exercises 2+ tools together:
 ### Extensibility
 With `main.cpp` fully wired, tests can be extended with a real server subprocess fixture. The telemetry log fixtures provide a stable baseline for comparison against live server output.
 
+## Demo Script (`scripts/demo.sh`)
+
+A narrated, color-coded bash script that demonstrates the full server reliability lifecycle in ~70 seconds. Composes all Python CLI tools against the live C++ server.
+
+### Phase Walkthrough
+
+| Phase | Duration | CLI Commands | What It Shows |
+|-------|----------|-------------|---------------|
+| **1. Baseline** | ~15s | `spawn-clients --count 5 --duration 5`, `health --no-faults` | Healthy server with player traffic |
+| **2. Break It** | ~10s | `inject-fault activate latency-spike --delay-ms 200`, `health --no-faults` | Tick degradation under 200ms fault (4x overrun) |
+| **3. Diagnose** | ~3s | `parse-logs --anomalies`, `inject-fault status latency-spike` | Anomaly detection + root cause identification |
+| **4. Fix It** | ~10s | `inject-fault deactivate latency-spike`, `health --no-faults` | Manual remediation and recovery verification |
+| **5. Pipeline** | ~20s | `deploy --fault-id latency-spike --action activate --delay-ms 200 --canary-duration 10 --canary-interval 2 --rollback-on critical` | Automated canary deployment with rollback |
+| **6. Summary** | ~5s | `health --no-faults` | Final health check and lifecycle recap |
+
+### Cross-Platform Support
+- **Binary detection:** checks `build/Debug/wow-server-sim.exe` (Windows/MSVC), `build/wow-server-sim.exe` (Windows/other), `build/wow-server-sim` (Linux)
+- **Venv activation:** checks `.venv/Scripts/activate` (Windows) then `.venv/bin/activate` (Linux)
+- **Colors:** ANSI escapes disabled when stdout is not a TTY
+
+### Server Lifecycle
+- Removes stale `telemetry.jsonl`, starts server in background, waits for telemetry file as readiness signal (up to 10s)
+- `trap cleanup EXIT INT TERM` kills server PID on any exit path
+- Server stdout redirected to `/dev/null` for clean demo output
+
 ## Key Design Patterns
 - **Producer/Consumer:** Network → intake queue → game loop
 - **Two-Stage Queue:** Intake → per-zone distribution

@@ -520,3 +520,30 @@ Tick ordering: `control.process_pending_commands()` → `registry.on_tick(tick)`
 - Exit code 0/1 enables CI gate usage (e.g., `wowsim benchmark --log-file ... || exit 1`)
 - 20 new pytest cases (total 134 non-integration) following identical test patterns as pipeline.py
 - Orchestrator is fully deterministic under monkeypatch — no flaky timing tests
+
+---
+
+## ADR-027: Demo Script — Narrated Shell Walkthrough
+
+**Date:** 2026-02-24
+**Status:** Accepted
+
+**Context:** PRD Success Criterion #4 requires "Full demo walkthrough runs end-to-end in under 5 minutes." All individual tools work and are tested (264 C++ tests, 134 Python tests), but there is no orchestrated walkthrough that demonstrates the complete reliability engineering lifecycle. CLAUDE.md Step 21 specifies "Demo script (scripted walkthrough of full fault -> diagnose -> fix -> deploy cycle)."
+
+**Decision:** Create `scripts/demo.sh` — a narrated, color-coded bash script that starts the server, walks through 6 phases, and completes in ~70 seconds. Design choices:
+
+1. **Shell script, not Python.** The demo composes existing CLI tools (`wowsim` commands) with sleep/wait orchestration. Shell is the natural glue language — no new Python code or test infrastructure needed.
+2. **6 phases:** Baseline (spawn traffic, verify healthy) → Break (inject latency-spike, observe CRITICAL) → Diagnose (parse-logs anomalies, fault status) → Fix (deactivate, verify recovery) → Pipeline (automated canary with rollback) → Summary (final health, lifecycle recap).
+3. **`--no-faults` on health checks** — avoids control channel query timeout during health reporting phases. Fault status shown explicitly in Phase 3 via `inject-fault status`.
+4. **200ms latency spike** — exceeds the 50ms tick budget by 4x, guaranteed to trigger critical health status and produce clear anomalies.
+5. **Cross-platform binary detection** — checks `build/Debug/wow-server-sim.exe` (Windows/MSVC), `build/wow-server-sim.exe` (Windows/other), then `build/wow-server-sim` (Linux). Venv activation checks `Scripts/activate` (Windows) then `bin/activate` (Linux).
+6. **TTY-safe colors** — ANSI escape codes disabled when stdout is not a terminal (`[ -t 1 ]`).
+7. **Server lifecycle** — cleanup trap on EXIT/INT/TERM kills the server PID. Telemetry file existence used as readiness signal (server emits telemetry on startup).
+
+**Consequences:**
+- Single script demonstrates the full reliability lifecycle without requiring manual intervention
+- ~70 second runtime is well within the 5-minute PRD budget
+- Composes all 5 Python CLI tools (spawn-clients, health, parse-logs, inject-fault, deploy) validating end-to-end integration
+- No new Python or C++ code — zero test regression risk
+- Color narration provides a professional demo experience suitable for screen recording
+- Cross-platform detection handles both Windows (MSVC Debug output) and Linux (CMake default) build layouts
