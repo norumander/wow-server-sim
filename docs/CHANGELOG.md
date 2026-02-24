@@ -7,6 +7,13 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- Full `main.cpp` wiring: all subsystems connected end-to-end — Logger, ZoneManager (Elwynn Forest + Hogger, Westfall + Defias Pillager), FaultRegistry (F1-F4), SessionEventQueue, ControlChannel (port 8081), GameServer (port 8080), GameLoop (20 Hz on main thread). Server binary now runs, accepts connections, assigns players to zones, processes game ticks, handles fault injection commands, and shuts down gracefully on Ctrl+C
+- `SessionEventQueue` (`wow::SessionEventQueue`): thread-safe queue bridging session lifecycle events (CONNECTED/DISCONNECTED) from GameServer's network thread to the game thread. Follows mutex + swap-drain pattern consistent with EventQueue and CommandQueue (ADR-022)
+- `GameServer::set_session_event_queue()`: non-owning pointer to SessionEventQueue for connect/disconnect notifications. Null-safe when no queue is set
+- Signal handling: `std::signal(SIGINT)` + `std::atomic<bool>` flag for graceful Ctrl+C shutdown. Game loop checks flag at tick start, triggers orderly teardown
+- Round-robin zone assignment: odd session_id → zone 1 (Elwynn Forest), even → zone 2 (Westfall)
+- Pre-tick hook wiring: FaultRegistry's `execute_pre_tick_faults()` fires inside each zone's exception guard
+- 7 new GoogleTest cases: SessionEventQueue (4 — construction, push/drain, drain-clears, concurrent push) and GameServer session events (3 — connect notification, disconnect notification, null-queue safety). Total: 250 C++ tests passing
 - Integration test infrastructure (`tests/python/integration/conftest.py`): telemetry line helpers and 6 scenario fixtures (normal operation, latency spike, session crash, zone crash, recovery arc, 50-player load) generating deterministic JSONL log files with 50ms tick-aligned timestamps
 - 6 connection lifecycle integration tests: client-to-mock-server connections, telemetry parsing for connection/disconnect events, player count estimation, server reachability, spawn-telemetry reconciliation, and 50-client stress test (PRD criterion 1)
 - 6 fault injection and recovery integration tests: activate + detect latency anomaly, deactivate + verify recovery, session crash disconnect anomalies, health status transitions (healthy → critical → healthy), zone crash detection in health report, and fault list/status/deactivate composition

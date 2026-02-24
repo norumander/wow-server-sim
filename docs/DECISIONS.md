@@ -408,3 +408,24 @@ Tick ordering: `control.process_pending_commands()` → `registry.on_tick(tick)`
 - Payloads match C++ event types exactly, ready for protocol parsing when server adds message framing
 - Per-client failure handling means partial connectivity doesn't abort the entire spawn
 - 18 pytest cases cover models, traffic generation, client lifecycle, spawning, formatting, and CLI
+
+---
+
+## ADR-022: Session Lifecycle Bridge — Thread-Safe Event Queue
+
+**Date:** 2026-02-24
+**Status:** Accepted
+
+**Context:** GameServer runs on a network thread, while ZoneManager is owned by the game thread. When clients connect or disconnect, the game thread needs to create or remove entities in the appropriate zones. Direct callbacks from the network thread would require thread-safe zone operations, violating the single-owner game thread model (ADR-002).
+
+**Decision:** Add a `SessionEventQueue` following the existing `EventQueue`/`CommandQueue` pattern (mutex + swap drain). GameServer pushes `CONNECTED`/`DISCONNECTED` events from the network thread; the game loop drains at tick start and calls `zone_manager.assign_session()` / `remove_session()`.
+
+1. **SessionEventQueue** — lightweight thread-safe queue (`push` from network thread, `drain` from game thread). Same swap-based bulk transfer pattern as EventQueue and CommandQueue.
+2. **GameServer integration** — `set_session_event_queue(SessionEventQueue*)` with non-owning raw pointer (per project convention). Queue lives on the stack in `main()`. Null-safe: no crash if no queue is set.
+3. **Round-robin zone assignment** — odd session_id → zone 1, even → zone 2. Simple, deterministic, balances load across two zones.
+
+**Consequences:**
+- All game state mutations remain on the game thread — no thread-safety concerns for ZoneManager or Zone
+- Consistent with EventQueue (ADR-009) and CommandQueue (ADR-017) patterns — three queues, one pattern
+- Session assignment happens at the start of the next tick after connection (max 50ms latency) — acceptable for a reliability demo
+- Zone assignment policy is trivially changeable (round-robin today, load-based tomorrow)

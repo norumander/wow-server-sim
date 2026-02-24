@@ -217,6 +217,14 @@ AUTHENTICATING + DISCONNECT           → DISCONNECTING
 - **Telemetry:** Emits `"Control channel started"` (with port), `"Control channel stopped"`, `"Control client connected"` (with client_count), `"Control client disconnected"` (with client_count)
 - **Test strategy:** 22 GoogleTest cases in 7 groups: CommandQueue (3), construction/lifecycle (4), connection handling (3), activate command (3), deactivate commands (3), status/list commands (3), error handling (3). Tests use port 0 with `send_command` helper (poll-based read with 2s timeout)
 
+### Session Event Queue (`src/server/session_event_queue.h`)
+- **Implementation:** `wow::SessionEventQueue` — thread-safe queue bridging session lifecycle events from the network thread to the game thread. Follows the same mutex + swap-drain pattern as `EventQueue` and `CommandQueue` (ADR-002, ADR-017, ADR-022)
+- **Event types:** `SessionEventType::CONNECTED` (pushed on accept) and `SessionEventType::DISCONNECTED` (pushed on client close). `SessionNotification` carries type + session_id
+- **GameServer integration:** `GameServer::set_session_event_queue(SessionEventQueue*)` — non-owning raw pointer per project convention. Null-safe: no crash if no queue is set. Queue lives on the stack in `main()`
+- **Game loop consumption:** Drained at tick start. CONNECTED events trigger `zone_manager.assign_session()` with round-robin zone assignment (odd session_id → zone 1, even → zone 2). DISCONNECTED events trigger `zone_manager.remove_session()`
+- **Thread safety:** Single `std::mutex` protects all operations. `push()` appends to internal vector; `drain()` uses `swap()` for O(1) bulk transfer
+- **Test strategy:** 4 GoogleTest cases covering empty construction, push/drain round-trip, drain-clears semantics, and concurrent multi-thread push. 3 additional tests on GameServer for connect/disconnect event notifications and null-queue safety
+
 ### Fault Injection (`src/server/fault/`)
 - **Architecture:** `wow::FaultRegistry` owns all registered `wow::Fault` instances via `unordered_map<FaultId, unique_ptr<Fault>>`. Not a singleton — created and owned by the game server for testability
 - **Base class:** `wow::Fault` abstract base with `id()`, `mode()`, `activate()`, `deactivate()`, `is_active()`, `on_tick(tick, zone*)`, `status()`. `FaultMode` enum distinguishes `TICK_SCOPED` (fires per-zone via pre_tick_hook) from `AMBIENT` (runs globally when activated)
@@ -294,9 +302,13 @@ AUTHENTICATING + DISCONNECT           → DISCONNECTING
 **MVP (Three Threads):**
 - Game server network thread: Asio io_context, handles game client TCP I/O
 - Control channel network thread: Separate Asio io_context, handles operator TCP I/O
-- Game loop thread: Fixed-rate tick, processes all zones sequentially
-- Communication: Thread-safe intake queue (EventQueue) and command queue (CommandQueue), both mutex + swap drain
-- Ownership boundary: Game thread owns all game state (FaultRegistry, ZoneManager). Network threads only enqueue.
+- Game loop thread (main thread): Fixed-rate tick at 20 Hz, processes all zones sequentially
+- Communication: Three thread-safe queues, all using mutex + swap drain:
+  - `EventQueue` — game events from network to game thread (ADR-009)
+  - `CommandQueue` — control commands from control channel to game thread (ADR-017)
+  - `SessionEventQueue` — session connect/disconnect from network to game thread (ADR-022)
+- Ownership boundary: Game thread owns all game state (FaultRegistry, ZoneManager, zone entities). Network threads only enqueue.
+- Tick ordering: drain session events → process control commands → tick ambient faults → tick all zones
 
 **Polish (Thread-per-Zone):**
 - Each zone gets its own thread and tick loop
@@ -307,7 +319,7 @@ AUTHENTICATING + DISCONNECT           → DISCONNECTING
 ## Integration Test Architecture
 
 ### Test Strategy
-Integration tests verify that all Python tools compose correctly in the documented workflow: **connect → play → inject fault → detect → recover**. Since `main.cpp` isn't wired yet (no running server binary), tests use mock servers from `conftest.py` plus synthesized JSONL telemetry log files.
+Integration tests verify that all Python tools compose correctly in the documented workflow: **connect → play → inject fault → detect → recover**. Tests use mock servers from `conftest.py` plus synthesized JSONL telemetry log files. With `main.cpp` fully wired, tests can also be extended with a real server subprocess fixture.
 
 ### Test Infrastructure (`tests/python/integration/conftest.py`)
 - **Telemetry line helpers:** Module-level functions (`make_tick_line`, `make_connection_line`, `make_disconnect_line`, `make_zone_tick_line`, `make_zone_error_line`, `make_combat_error_line`) build JSONL lines matching the C++ server's telemetry schema
@@ -331,12 +343,13 @@ Each integration test exercises 2+ tools together:
 - Full 5-tool pipeline: spawn → activate → detect → deactivate → verify recovery
 
 ### Extensibility
-When `main.cpp` is wired with all subsystems, tests can be extended with a real server subprocess fixture. The telemetry log fixtures provide a stable baseline for comparison against live server output.
+With `main.cpp` fully wired, tests can be extended with a real server subprocess fixture. The telemetry log fixtures provide a stable baseline for comparison against live server output.
 
 ## Key Design Patterns
 - **Producer/Consumer:** Network → intake queue → game loop
 - **Two-Stage Queue:** Intake → per-zone distribution
 - **Command Queue:** Control channel → command queue → game thread (ADR-017)
+- **Session Event Queue:** Network thread → session event queue → game thread (ADR-022)
 - **Transition Table:** Session state machine
 - **Phase Pipeline:** Ordered tick processing
 - **Mark-and-Sweep:** Session cleanup with reconnection window
