@@ -70,6 +70,7 @@ add_executable(wow-server-sim
     src/server/events/event.cpp
     src/server/events/movement.cpp
     src/server/events/spellcast.cpp
+    src/server/events/combat.cpp
     src/server/events/event_queue.cpp
     src/server/world/entity.cpp
 )

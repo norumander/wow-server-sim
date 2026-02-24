@@ -30,8 +30,9 @@ float distance(const Position& a, const Position& b)
 // Entity
 // ---------------------------------------------------------------------------
 
-Entity::Entity(uint64_t session_id)
+Entity::Entity(uint64_t session_id, EntityType type)
     : session_id_(session_id)
+    , entity_type_(type)
     , position_()
 {
 }
@@ -39,6 +40,11 @@ Entity::Entity(uint64_t session_id)
 uint64_t Entity::session_id() const
 {
     return session_id_;
+}
+
+EntityType Entity::entity_type() const
+{
+    return entity_type_;
 }
 
 const Position& Entity::position() const
@@ -59,6 +65,16 @@ CastState& Entity::cast_state()
 const CastState& Entity::cast_state() const
 {
     return cast_state_;
+}
+
+CombatState& Entity::combat_state()
+{
+    return combat_state_;
+}
+
+const CombatState& Entity::combat_state() const
+{
+    return combat_state_;
 }
 
 }  // namespace wow
