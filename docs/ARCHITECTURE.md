@@ -80,7 +80,7 @@ The WoW Server Simulator consists of a C++17 game server and a Python tooling su
 
 ### Event System (`src/server/events/`)
 - **Base class:** `wow::GameEvent` with `EventType` tag enum (`MOVEMENT`, `SPELL_CAST`, `COMBAT`) and `session_id`. Owned via `std::unique_ptr<GameEvent>` for single-ownership transfer through the event queue. Virtual destructor enables polymorphic deletion; type tag enables safe `static_cast` downcasting without RTTI overhead
-- **Event types:** `wow::MovementEvent` carries a target `Position`. `SPELL_CAST` and `COMBAT` types reserved for Steps 7–8
+- **Event types:** `wow::MovementEvent` carries a target `Position`. `wow::SpellCastEvent` carries `SpellAction` (CAST_START/INTERRUPT), `spell_id`, and `cast_time_ticks`. `COMBAT` type reserved for Step 8
 - **String conversion:** `event_type_to_string()` free function returning `std::string_view`
 
 ### Event Queue (`src/server/events/event_queue.h`)
@@ -94,16 +94,32 @@ The WoW Server Simulator consists of a C++17 game server and a Python tooling su
 - **Implementation:** `wow::MovementProcessor::process()` filters events for `EventType::MOVEMENT`, downcasts via `static_cast<MovementEvent*>` (safe: type tag guarantees correct cast), looks up entity by `session_id`, and updates position
 - **Unknown sessions:** Skipped with error telemetry — no entity created, no crash
 - **Last-wins semantics:** Multiple movement events for the same session in one tick: processor iterates in order, last position overwrites earlier ones (matches WoW server behavior)
+- **Cross-phase flag:** Sets `entity.cast_state().moved_this_tick = true` on position update. SpellCastProcessor consumes this flag to cancel active casts (WoW-authentic: movement cancels cast)
 - **Telemetry:** Emits `"Position updated"` event per movement with `session_id`, old position, and new position
 - **Return value:** Number of unique entities whose positions were updated (not number of events processed)
 - **Test strategy:** 5 GoogleTest cases covering single entity update, unknown session skip, multiple entities, last-wins for same session, and telemetry emission
 
+### Spell Cast Processor (`src/server/events/spellcast.h`)
+- **Implementation:** `wow::SpellCastProcessor::process()` runs a 5-step phase pipeline per tick:
+  1. **Movement cancellation** — if `moved_this_tick && is_casting`: cancel cast (WoW-authentic)
+  2. **Interrupt events** — `INTERRUPT` events cancel targeted casts
+  3. **Advance timers** — decrement `cast_ticks_remaining`; complete if 0
+  4. **Process CAST_START** — GCD check, already-casting check, initiate new cast
+  5. **Clear flags** — reset `moved_this_tick` on all entities
+- **GCD semantics:** `kGlobalCooldownTicks = 30` (1.5s at 20 Hz). GCD triggers on cast start, not completion (matches WoW). `gcd_expires_tick == 0` means no GCD; `> current_tick` means active; `<= current_tick` means expired
+- **Instant casts:** `cast_time_ticks = 0` starts and completes same tick. Sets GCD, emits both telemetry events, does not enter `is_casting` state
+- **Result struct:** `SpellCastResult` with `casts_started`, `casts_completed`, `casts_interrupted`, `gcd_blocked` counters for telemetry and testing
+- **Unknown sessions:** Skipped with error telemetry for CAST_START; silently skipped for INTERRUPT (entity may have been removed)
+- **Telemetry:** Emits `"Cast started"` (with spell_id, session_id, cast_time_ticks), `"Cast completed"` (with spell_id, session_id), `"Cast interrupted"` (with spell_id, session_id, reason), `"Cast blocked by GCD"` (with timing details)
+- **Test strategy:** 24 GoogleTest cases in 8 groups: SpellCastEvent data (3), CastState/Entity (3), cast initiation (3), GCD enforcement (3), timer advancement/completion (4), interrupt handling (3), telemetry (3), tick integration (2)
+
 ### Entity (`src/server/world/entity.h`)
-- **Implementation:** `wow::Entity` represents a player's in-world avatar, keyed by `session_id`. Stores a `wow::Position` (3D float: x, y, z). Default position is origin (0, 0, 0)
+- **Implementation:** `wow::Entity` represents a player's in-world avatar, keyed by `session_id`. Stores a `wow::Position` (3D float: x, y, z) and a `wow::CastState` for spell casting. Default position is origin (0, 0, 0)
 - **Position struct:** `wow::Position` with `operator==`, `operator!=`, and `distance()` free function (Euclidean distance)
+- **CastState struct:** Per-entity spell casting state with `is_casting`, `spell_id`, `cast_ticks_remaining`, `gcd_expires_tick`, and `moved_this_tick` flag. Accessed via mutable/const `cast_state()` accessors. Owned by game thread alongside Position — avoids circular dependency with events/
 - **MVP simplification:** Entity keyed by session_id — one entity per player. NPCs with independent entity IDs deferred to Step 8 (combat)
 - **Entity map:** `std::unordered_map<uint64_t, Entity>` owned by the game thread. Not mutex-protected (single-owner design)
-- **Test strategy:** 3 GoogleTest cases covering default position, session_id storage, and set_position mutation
+- **Test strategy:** 3 GoogleTest cases for entity basics + 3 for CastState (default values, mutable access, moved_this_tick flag)
 
 ### Zone (Self-Contained Processing Unit)
 - **Responsibility:** Owns its session registry, entity list, event queue, tick pipeline

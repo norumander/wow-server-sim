@@ -7,6 +7,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- Spell cast system (`wow::SpellCastEvent`, `wow::SpellCastProcessor`): cast initiation with variable cast times, GCD enforcement (1.5s / 30 ticks at 20 Hz), instant casts (cast_time=0), interrupt handling (by event and by movement), and 5-step per-tick processing order (movement cancel → interrupt → advance → cast start → clear flags)
+- `CastState` struct on Entity: per-entity spell casting state (`is_casting`, `spell_id`, `cast_ticks_remaining`, `gcd_expires_tick`, `moved_this_tick` cross-phase flag)
+- Movement-cancels-cast: `MovementProcessor` sets `moved_this_tick` flag, `SpellCastProcessor` cancels active casts when flag is set (WoW-authentic behavior per ADR-012)
+- 24 GoogleTest cases for spell cast system covering data types, entity state, cast initiation, GCD, timer advancement/completion, interrupts, telemetry, and tick integration
 - Event system foundation: `GameEvent` base class with `EventType` enum (`MOVEMENT`, `SPELL_CAST`, `COMBAT`), `event_type_to_string()` conversion, polymorphic ownership via `unique_ptr`
 - Movement event processing (`wow::MovementEvent`, `wow::MovementProcessor`): position updates on game tick with last-wins semantics for multiple events per session, telemetry on position change and unknown-session warnings
 - Thread-safe event queue (`wow::EventQueue`): mutex-protected push/drain with O(1) bulk transfer via swap, bridging network and game threads

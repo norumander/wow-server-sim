@@ -241,3 +241,26 @@
 - Type tag pattern avoids RTTI overhead of dynamic_cast — standard game engine technique
 - Entity map not mutex-protected — owned exclusively by game thread, consistent with ADR-002 ownership boundaries
 - Position in entity.h avoids circular dependency (entity.h ← movement.h, not bidirectional)
+
+---
+
+## ADR-015: Spell Cast System — CastState on Entity with Phase-Ordered Processing
+
+**Date:** 2026-02-23
+**Status:** Accepted
+
+**Context:** Need spell casting mechanics (cast times, GCD, interrupts, movement cancellation) that demonstrate WoW domain knowledge and create interesting fault injection scenarios. Key design decisions: where to store cast state, how to communicate between MovementProcessor and SpellCastProcessor, and processing order within the spell cast phase.
+
+**Decision:**
+1. **CastState struct in entity.h** alongside Position — both are per-entity state owned by the game thread. Avoids circular dependency (entity.h doesn't depend on events/).
+2. **Movement-cancels-cast via flag:** `MovementProcessor` sets `moved_this_tick = true`; `SpellCastProcessor` checks and clears it. Keeps processor APIs uniform.
+3. **SpellAction enum (CAST_START/INTERRUPT)** on SpellCastEvent — cast time carried directly, no spell registry for MVP.
+4. **5-step processing order:** movement cancellation → interrupt events → advance timers → CAST_START → clear flags. Movement cancels before events ensures you can't cast and move same tick. Interrupts before advancement prevents complete-and-interrupt in same tick. CAST_START last ensures GCD from completed casts is respected.
+5. **GCD on cast start:** `gcd_expires_tick = current_tick + 30` set when cast initiates, not when it completes (matches WoW). Instant casts (cast_time=0) set GCD and complete same tick.
+
+**Consequences:**
+- Cross-phase communication via flag on entity is simple and testable — no extra parameters or return values
+- Processing order matches WoW's actual behavior and prevents same-tick exploits
+- GCD semantics use absolute tick numbers, avoiding timer drift
+- SpellCastResult struct enables rich telemetry without requiring log parsing in tests
+- Instant casts are a natural special case, not a separate code path
