@@ -51,4 +51,14 @@ void Entity::set_position(const Position& pos)
     position_ = pos;
 }
 
+CastState& Entity::cast_state()
+{
+    return cast_state_;
+}
+
+const CastState& Entity::cast_state() const
+{
+    return cast_state_;
+}
+
 }  // namespace wow

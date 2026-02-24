@@ -17,6 +17,18 @@ bool operator!=(const Position& a, const Position& b);
 /// Euclidean distance between two positions.
 float distance(const Position& a, const Position& b);
 
+/// Per-entity spell casting state, owned by the game thread alongside Position.
+///
+/// Tracks active cast progress, GCD expiry, and the movement-cancels-cast flag
+/// set by MovementProcessor and consumed by SpellCastProcessor each tick.
+struct CastState {
+    bool is_casting = false;           ///< Whether a spell is being channeled
+    uint32_t spell_id = 0;            ///< ID of the spell being cast (0 = none)
+    uint32_t cast_ticks_remaining = 0; ///< Ticks left until cast completes
+    uint64_t gcd_expires_tick = 0;     ///< Absolute tick when GCD expires (0 = no GCD)
+    bool moved_this_tick = false;      ///< Set by MovementProcessor, consumed by SpellCastProcessor
+};
+
 /// Represents a player's in-world avatar.
 ///
 /// Keyed by session_id for MVP — one entity per connected player.
@@ -35,9 +47,16 @@ public:
     /// Update position (called by MovementProcessor).
     void set_position(const Position& pos);
 
+    /// Mutable access to spell casting state (used by SpellCastProcessor).
+    CastState& cast_state();
+
+    /// Const access to spell casting state (used for inspection/telemetry).
+    const CastState& cast_state() const;
+
 private:
     uint64_t session_id_;
     Position position_;
+    CastState cast_state_;
 };
 
 }  // namespace wow

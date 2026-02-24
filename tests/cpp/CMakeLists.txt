@@ -7,6 +7,7 @@ add_executable(unit_tests
     unit/test_session.cpp
     unit/test_game_server.cpp
     unit/test_movement.cpp
+    unit/test_spellcast.cpp
     ${CMAKE_SOURCE_DIR}/src/server/telemetry/logger.cpp
     ${CMAKE_SOURCE_DIR}/src/server/game_loop.cpp
     ${CMAKE_SOURCE_DIR}/src/server/session.cpp
@@ -14,6 +15,7 @@ add_executable(unit_tests
     ${CMAKE_SOURCE_DIR}/src/server/connection.cpp
     ${CMAKE_SOURCE_DIR}/src/server/events/event.cpp
     ${CMAKE_SOURCE_DIR}/src/server/events/movement.cpp
+    ${CMAKE_SOURCE_DIR}/src/server/events/spellcast.cpp
     ${CMAKE_SOURCE_DIR}/src/server/events/event_queue.cpp
     ${CMAKE_SOURCE_DIR}/src/server/world/entity.cpp
 )
