@@ -222,3 +222,43 @@ class TestAnomalyDetection:
         assert entry is not None
         anomalies = detect_anomalies([entry])
         assert anomalies == []
+
+
+# ============================================================
+# Group F: CLI Integration (2 tests)
+# ============================================================
+
+
+class TestCLI:
+    """Tests for the parse-logs CLI command."""
+
+    def test_cli_parse_logs_summary(self, sample_log_file: Path) -> None:
+        """CLI parse-logs outputs a summary containing entry count."""
+        from click.testing import CliRunner
+
+        from wowsim.cli import main
+
+        runner = CliRunner()
+        result = runner.invoke(main, ["parse-logs", str(sample_log_file)])
+        assert result.exit_code == 0
+        assert "Log Summary" in result.output
+        assert "Total entries" in result.output
+
+    def test_cli_parse_logs_anomalies_flag(
+        self, tmp_path: Path, entries_with_anomalies: list[str]
+    ) -> None:
+        """CLI parse-logs --anomalies shows only anomaly output."""
+        from click.testing import CliRunner
+
+        from wowsim.cli import main
+
+        log_file = tmp_path / "anomalies.jsonl"
+        log_file.write_text("\n".join(entries_with_anomalies) + "\n")
+
+        runner = CliRunner()
+        result = runner.invoke(
+            main, ["parse-logs", str(log_file), "--anomalies"]
+        )
+        assert result.exit_code == 0
+        assert "Anomalies" in result.output
+        assert "latency_spike" in result.output

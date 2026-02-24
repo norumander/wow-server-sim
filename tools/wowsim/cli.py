@@ -4,9 +4,24 @@ Provides subcommands for fault injection, health monitoring,
 log analysis, mock client spawning, and the monitoring dashboard.
 """
 
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
 import click
 
 from wowsim import __version__
+from wowsim.log_parser import (
+    detect_anomalies,
+    filter_entries,
+    format_anomalies,
+    format_summary,
+    parse_file,
+    parse_stream,
+    summarize,
+)
+from wowsim.models import ParseResult
 
 
 @click.group()
@@ -28,9 +43,62 @@ def inject_fault() -> None:
 
 
 @main.command("parse-logs")
-def parse_logs() -> None:
-    """Parse and analyze server telemetry logs."""
-    click.echo("parse-logs: not yet implemented")
+@click.argument("file", type=click.Path(exists=False))
+@click.option("--type", "type_filter", default=None, help="Filter by entry type.")
+@click.option(
+    "--component", "component_filter", default=None, help="Filter by component."
+)
+@click.option(
+    "--message", "message_filter", default=None, help="Filter by message substring."
+)
+@click.option("--anomalies", is_flag=True, help="Show detected anomalies only.")
+@click.option(
+    "--format",
+    "output_format",
+    type=click.Choice(["text", "json"]),
+    default="text",
+    help="Output format.",
+)
+def parse_logs(
+    file: str,
+    type_filter: str | None,
+    component_filter: str | None,
+    message_filter: str | None,
+    anomalies: bool,
+    output_format: str,
+) -> None:
+    """Parse and analyze server telemetry logs.
+
+    FILE is the path to a JSONL telemetry file (use - for stdin).
+    """
+    if file == "-":
+        entries = parse_stream(sys.stdin)
+    else:
+        path = Path(file)
+        if not path.exists():
+            raise click.ClickException(f"File not found: {file}")
+        entries = parse_file(path)
+
+    entries = filter_entries(
+        entries,
+        type_filter=type_filter,
+        component_filter=component_filter,
+        message_filter=message_filter,
+    )
+
+    summary = summarize(entries)
+    detected = detect_anomalies(entries)
+
+    if output_format == "json":
+        result = ParseResult(entries=entries, summary=summary, anomalies=detected)
+        click.echo(result.model_dump_json(indent=2))
+    elif anomalies:
+        click.echo(format_anomalies(detected))
+    else:
+        click.echo(format_summary(summary))
+        if detected:
+            click.echo("")
+            click.echo(format_anomalies(detected))
 
 
 @main.command("spawn-clients")

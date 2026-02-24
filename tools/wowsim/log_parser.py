@@ -1,4 +1,7 @@
-"""Log parser for server telemetry — parsing, filtering, summarizing, anomaly detection."""
+"""Log parser for server telemetry.
+
+Parsing, filtering, summarizing, and anomaly detection.
+"""
 
 from __future__ import annotations
 
@@ -138,7 +141,10 @@ def _detect_latency_spikes(
                         type="latency_spike",
                         severity="critical",
                         timestamp=entry.timestamp,
-                        message=f"Tick duration {duration}ms exceeds critical threshold ({crit_ms}ms)",
+                        message=(
+                            f"Tick duration {duration}ms exceeds"
+                            f" critical threshold ({crit_ms}ms)"
+                        ),
                         details={"duration_ms": duration, "threshold_ms": crit_ms},
                     )
                 )
@@ -148,7 +154,10 @@ def _detect_latency_spikes(
                         type="latency_spike",
                         severity="warning",
                         timestamp=entry.timestamp,
-                        message=f"Tick duration {duration}ms exceeds warning threshold ({warn_ms}ms)",
+                        message=(
+                            f"Tick duration {duration}ms exceeds"
+                            f" warning threshold ({warn_ms}ms)"
+                        ),
                         details={"duration_ms": duration, "threshold_ms": warn_ms},
                     )
                 )
@@ -206,7 +215,10 @@ def _detect_error_bursts(
                     type="error_burst",
                     severity="critical",
                     timestamp=error.timestamp,
-                    message=f"{count} errors within {window_sec}s (threshold: {threshold})",
+                    message=(
+                        f"{count} errors within {window_sec}s"
+                        f" (threshold: {threshold})"
+                    ),
                     details={"error_count": count, "window_sec": window_sec},
                 )
             )
@@ -234,3 +246,47 @@ def _detect_unexpected_disconnects(entries: list[TelemetryEntry]) -> list[Anomal
                 )
             )
     return anomalies
+
+
+# --- Formatting ---
+
+
+def format_summary(summary: LogSummary) -> str:
+    """Format a LogSummary as a human-readable table."""
+    lines = ["Log Summary", "=" * 40]
+    lines.append(f"  Total entries:  {summary.total_entries}")
+    lines.append(f"  Errors:         {summary.error_count}")
+    if summary.time_range_start:
+        lines.append(f"  Time range:     {summary.time_range_start.isoformat()}")
+        lines.append(f"                  {summary.time_range_end.isoformat()}")
+        lines.append(f"  Duration:       {summary.duration_seconds:.1f}s")
+    lines.append("")
+    lines.append("  By type:")
+    for type_name, count in sorted(summary.entries_by_type.items()):
+        lines.append(f"    {type_name:<15} {count}")
+    lines.append("")
+    lines.append("  By component:")
+    for comp, count in sorted(summary.entries_by_component.items()):
+        lines.append(f"    {comp:<15} {count}")
+    return "\n".join(lines)
+
+
+def format_anomalies(anomalies: list[Anomaly]) -> str:
+    """Format a list of anomalies as a human-readable report."""
+    if not anomalies:
+        return "No anomalies detected."
+    lines = [f"Anomalies ({len(anomalies)})", "=" * 40]
+    for a in anomalies:
+        severity_tag = "CRITICAL" if a.severity == "critical" else "WARNING"
+        lines.append(f"  [{severity_tag}] {a.type}: {a.message}")
+        lines.append(f"           at {a.timestamp.isoformat()}")
+    return "\n".join(lines)
+
+
+def format_entries(entries: list[TelemetryEntry]) -> str:
+    """Format telemetry entries as compact one-line-per-entry output."""
+    lines: list[str] = []
+    for e in entries:
+        ts = e.timestamp.isoformat()
+        lines.append(f"[{ts}] {e.type:<7} {e.component:<15} {e.message}")
+    return "\n".join(lines)
