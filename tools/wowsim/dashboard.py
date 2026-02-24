@@ -6,6 +6,11 @@ without any Textual dependency. The TUI app class follows below.
 
 from __future__ import annotations
 
+from datetime import datetime
+from pathlib import Path
+
+from pydantic import BaseModel
+
 from wowsim.models import TelemetryEntry, TickHealth
 
 
@@ -68,3 +73,44 @@ def status_to_style(status: str) -> str:
 def fault_action_label(active: bool) -> str:
     """Return the appropriate action label for a fault's current state."""
     return "Deactivate" if active else "Activate"
+
+
+def filter_new_entries(
+    entries: list[TelemetryEntry],
+    last_ts: datetime | None,
+) -> tuple[list[TelemetryEntry], datetime | None]:
+    """Filter entries using a timestamp watermark to avoid duplicates.
+
+    On first load (last_ts is None), returns the last 20 entries.
+    On subsequent loads, returns only entries newer than last_ts.
+    Returns (filtered_entries, new_watermark).
+    """
+    if not entries:
+        return [], None
+
+    if last_ts is None:
+        result = entries[-20:]
+    else:
+        result = [e for e in entries if e.timestamp > last_ts]
+
+    if result:
+        new_ts = result[-1].timestamp
+    else:
+        new_ts = last_ts
+
+    return result, new_ts
+
+
+# ---------------------------------------------------------------------------
+# Configuration
+# ---------------------------------------------------------------------------
+
+
+class DashboardConfig(BaseModel):
+    """Configuration for the monitoring dashboard."""
+
+    log_file: Path
+    host: str = "localhost"
+    port: int = 8080
+    control_port: int = 8081
+    refresh_interval: float = 2.0

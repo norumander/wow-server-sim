@@ -330,9 +330,36 @@ def spawn_clients(
 
 
 @main.command()
-def dashboard() -> None:
+@click.option(
+    "--log-file",
+    required=True,
+    type=click.Path(exists=True),
+    help="Path to JSONL telemetry log file.",
+)
+@click.option("--host", default="localhost", help="Game server host.")
+@click.option("--port", default=8080, type=int, help="Game server port.")
+@click.option("--control-port", default=8081, type=int, help="Control channel port.")
+@click.option(
+    "--refresh", default=2.0, type=float, help="Refresh interval in seconds."
+)
+def dashboard(
+    log_file: str,
+    host: str,
+    port: int,
+    control_port: int,
+    refresh: float,
+) -> None:
     """Launch the monitoring dashboard."""
-    click.echo("dashboard: not yet implemented")
+    from wowsim.dashboard import DashboardConfig, WoWDashboardApp
+
+    config = DashboardConfig(
+        log_file=Path(log_file),
+        host=host,
+        port=port,
+        control_port=control_port,
+        refresh_interval=refresh,
+    )
+    WoWDashboardApp(config).run()
 
 
 if __name__ == "__main__":
