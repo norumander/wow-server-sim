@@ -1,5 +1,10 @@
 #include "server/world/zone.h"
 
+#include <chrono>
+#include <stdexcept>
+
+#include "server/telemetry/logger.h"
+
 namespace wow {
 
 Zone::Zone(const ZoneConfig& config)
@@ -21,9 +26,12 @@ bool Zone::remove_entity(uint64_t session_id) {
     return entities_.erase(session_id) > 0;
 }
 
-std::optional<Entity> Zone::take_entity(uint64_t /*session_id*/) {
-    // Stub — implemented in Commit 2
-    return std::nullopt;
+std::optional<Entity> Zone::take_entity(uint64_t session_id) {
+    auto node = entities_.extract(session_id);
+    if (node.empty()) {
+        return std::nullopt;
+    }
+    return std::move(node.mapped());
 }
 
 bool Zone::has_entity(uint64_t session_id) const {
@@ -36,8 +44,8 @@ const std::unordered_map<uint64_t, Entity>& Zone::entities() const {
     return entities_;
 }
 
-void Zone::push_event(std::unique_ptr<GameEvent> /*event*/) {
-    // Stub — implemented in Commit 2
+void Zone::push_event(std::unique_ptr<GameEvent> event) {
+    event_queue_.push(std::move(event));
 }
 
 size_t Zone::event_queue_depth() const {
@@ -45,10 +53,88 @@ size_t Zone::event_queue_depth() const {
 }
 
 ZoneTickResult Zone::tick(uint64_t current_tick) {
+    auto start = std::chrono::steady_clock::now();
+
     ZoneTickResult result;
     result.zone_id = config_.zone_id;
     result.tick = current_tick;
+
+    try {
+        // Pre-tick hook (fault injection point)
+        if (pre_tick_hook_) {
+            pre_tick_hook_();
+        }
+
+        // Drain events from queue
+        auto events = event_queue_.drain();
+        result.events_processed = events.size();
+
+        // Phase pipeline: Movement -> SpellCast -> Combat
+        result.entities_moved = movement_processor_.process(events, entities_);
+        result.spell_result = spellcast_processor_.process(events, entities_, current_tick);
+        result.combat_result = combat_processor_.process(events, entities_);
+
+        // Post-tick hook (fault injection point)
+        if (post_tick_hook_) {
+            post_tick_hook_();
+        }
+
+        // State recovery: CRASHED -> DEGRADED -> ACTIVE
+        if (state_ == ZoneState::CRASHED) {
+            state_ = ZoneState::DEGRADED;
+        } else if (state_ == ZoneState::DEGRADED) {
+            state_ = ZoneState::ACTIVE;
+        }
+
+    } catch (const std::exception& e) {
+        result.had_error = true;
+        result.error_message = e.what();
+        state_ = ZoneState::CRASHED;
+        ++error_count_;
+
+        if (Logger::is_initialized()) {
+            Logger::instance().error("zone", "Zone tick exception", {
+                {"zone_id", config_.zone_id},
+                {"zone_name", config_.name},
+                {"tick", current_tick},
+                {"error", e.what()}
+            });
+        }
+    } catch (...) {
+        result.had_error = true;
+        result.error_message = "Unknown exception";
+        state_ = ZoneState::CRASHED;
+        ++error_count_;
+
+        if (Logger::is_initialized()) {
+            Logger::instance().error("zone", "Zone tick exception", {
+                {"zone_id", config_.zone_id},
+                {"zone_name", config_.name},
+                {"tick", current_tick},
+                {"error", "Unknown exception"}
+            });
+        }
+    }
+
     ++total_ticks_;
+
+    auto end = std::chrono::steady_clock::now();
+    auto duration = std::chrono::duration<double, std::milli>(end - start);
+    last_tick_duration_ms_ = duration.count();
+    result.duration_ms = last_tick_duration_ms_;
+
+    // Emit tick completion telemetry (outside exception guard — always fires)
+    if (!result.had_error && Logger::is_initialized()) {
+        Logger::instance().metric("zone", "Zone tick completed", {
+            {"zone_id", config_.zone_id},
+            {"zone_name", config_.name},
+            {"tick", current_tick},
+            {"events_processed", result.events_processed},
+            {"entities_moved", result.entities_moved},
+            {"duration_ms", result.duration_ms}
+        });
+    }
+
     return result;
 }
 
