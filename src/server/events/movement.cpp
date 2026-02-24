@@ -55,6 +55,7 @@ size_t MovementProcessor::process(
         const Position& new_pos = movement->position();
 
         it->second.set_position(new_pos);
+        it->second.cast_state().moved_this_tick = true;
         updated_sessions.insert(sid);
 
         if (Logger::is_initialized()) {

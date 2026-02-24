@@ -45,15 +45,98 @@ SpellCastResult SpellCastProcessor::process(
 {
     SpellCastResult result;
 
-    // Phase 4: Process CAST_START events (GCD check, initiate cast).
+    // Step 1: Movement cancellation — if moved_this_tick && is_casting: cancel.
+    for (auto& [sid, entity] : entities) {
+        auto& cs = entity.cast_state();
+        if (cs.moved_this_tick && cs.is_casting) {
+            uint32_t cancelled_spell = cs.spell_id;
+            cs.is_casting = false;
+            cs.spell_id = 0;
+            cs.cast_ticks_remaining = 0;
+            ++result.casts_interrupted;
+
+            if (Logger::is_initialized()) {
+                Logger::instance().event("spellcast", "Cast interrupted", {
+                    {"session_id", sid},
+                    {"spell_id", cancelled_spell},
+                    {"reason", "movement"},
+                });
+            }
+        }
+    }
+
+    // Step 2: Interrupt events — INTERRUPT events cancel targeted casts.
     for (auto& event : events) {
         if (!event || event->event_type() != EventType::SPELL_CAST) {
             continue;
         }
 
         auto* spell_event = static_cast<SpellCastEvent*>(event.get());
-        uint64_t sid = spell_event->session_id();
+        if (spell_event->action() != SpellAction::INTERRUPT) {
+            continue;
+        }
 
+        uint64_t sid = spell_event->session_id();
+        auto it = entities.find(sid);
+        if (it == entities.end()) {
+            continue;
+        }
+
+        auto& cs = it->second.cast_state();
+        if (!cs.is_casting) {
+            continue;
+        }
+
+        uint32_t cancelled_spell = cs.spell_id;
+        cs.is_casting = false;
+        cs.spell_id = 0;
+        cs.cast_ticks_remaining = 0;
+        ++result.casts_interrupted;
+
+        if (Logger::is_initialized()) {
+            Logger::instance().event("spellcast", "Cast interrupted", {
+                {"session_id", sid},
+                {"spell_id", cancelled_spell},
+                {"reason", "interrupt"},
+            });
+        }
+    }
+
+    // Step 3: Advance timers — decrement cast_ticks_remaining; complete if 0.
+    for (auto& [sid, entity] : entities) {
+        auto& cs = entity.cast_state();
+        if (!cs.is_casting) {
+            continue;
+        }
+
+        --cs.cast_ticks_remaining;
+        if (cs.cast_ticks_remaining == 0) {
+            uint32_t completed_spell = cs.spell_id;
+            cs.is_casting = false;
+            cs.spell_id = 0;
+            ++result.casts_completed;
+
+            if (Logger::is_initialized()) {
+                Logger::instance().event("spellcast", "Cast completed", {
+                    {"session_id", sid},
+                    {"spell_id", completed_spell},
+                });
+            }
+        }
+    }
+
+    // Step 4: Process CAST_START events (GCD check, initiate cast).
+    for (auto& event : events) {
+        if (!event || event->event_type() != EventType::SPELL_CAST) {
+            continue;
+        }
+
+        auto* spell_event = static_cast<SpellCastEvent*>(event.get());
+        if (spell_event->action() != SpellAction::CAST_START) {
+            continue;
+        }
+
+        uint64_t sid = spell_event->session_id();
         auto it = entities.find(sid);
         if (it == entities.end()) {
             if (Logger::is_initialized()) {
@@ -61,10 +144,6 @@ SpellCastResult SpellCastProcessor::process(
                     {"session_id", sid},
                 });
             }
-            continue;
-        }
-
-        if (spell_event->action() != SpellAction::CAST_START) {
             continue;
         }
 
@@ -120,6 +199,11 @@ SpellCastResult SpellCastProcessor::process(
                 {"cast_time_ticks", spell_event->cast_time_ticks()},
             });
         }
+    }
+
+    // Step 5: Clear moved_this_tick flags on all entities.
+    for (auto& [sid, entity] : entities) {
+        entity.cast_state().moved_this_tick = false;
     }
 
     return result;
