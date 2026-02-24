@@ -371,3 +371,24 @@ class TestFaultCatalog:
         result = format_fault_option("latency-spike", "Add 200ms delay")
         assert "latency-spike" in result
         assert "200ms" in result
+
+
+# ---------------------------------------------------------------------------
+# Group L: Pipeline keybinding (2 tests)
+# ---------------------------------------------------------------------------
+
+
+class TestPipelineBinding:
+    """Dashboard has 'p' keybinding that triggers pipeline action."""
+
+    def test_binding_registered(self) -> None:
+        from wowsim.dashboard import WoWDashboardApp
+
+        keys = [b[0] if isinstance(b, tuple) else b.key for b in WoWDashboardApp.BINDINGS]
+        assert "p" in keys
+
+    def test_action_method_exists(self) -> None:
+        from wowsim.dashboard import WoWDashboardApp
+
+        assert hasattr(WoWDashboardApp, "action_run_pipeline")
+        assert callable(getattr(WoWDashboardApp, "action_run_pipeline"))
