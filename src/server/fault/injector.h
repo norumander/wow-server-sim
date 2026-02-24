@@ -123,7 +123,14 @@ public:
     void execute_pre_tick_faults(Zone& zone);
 
 private:
+    /// Per-fault activation tracking for duration auto-deactivation.
+    struct ActivationInfo {
+        FaultConfig config;
+        uint64_t ticks_elapsed = 0;
+    };
+
     std::unordered_map<FaultId, std::unique_ptr<Fault>> faults_;
+    std::unordered_map<FaultId, ActivationInfo> activations_;
     uint64_t current_tick_ = 0;
 };
 
