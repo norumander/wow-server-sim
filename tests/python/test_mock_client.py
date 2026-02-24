@@ -240,3 +240,117 @@ class TestMultiClientSpawning:
         )
         asyncio.run(spawn_clients(cfg, count=10))
         assert server.bytes_received > 0
+
+
+# ---------------------------------------------------------------------------
+# Group F: Formatting
+# ---------------------------------------------------------------------------
+
+from wowsim.mock_client import format_spawn_result
+
+
+class TestFormatting:
+    """Verify human-readable and JSON output formatting."""
+
+    def test_format_spawn_result_text(self) -> None:
+        clients = [
+            ClientResult(
+                client_id=0, connected=True, actions_sent=16, duration_seconds=10.02
+            ),
+            ClientResult(
+                client_id=1, connected=True, actions_sent=15, duration_seconds=10.01
+            ),
+            ClientResult(
+                client_id=2,
+                connected=False,
+                actions_sent=0,
+                duration_seconds=0.0,
+                error="Connection refused",
+            ),
+        ]
+        result = SpawnResult(
+            total_clients=3,
+            successful_connections=2,
+            failed_connections=1,
+            total_actions_sent=31,
+            total_duration_seconds=10.23,
+            clients=clients,
+        )
+        text = format_spawn_result(result)
+        assert "Mock Client Spawn Results" in text
+        assert "3 total" in text
+        assert "2 connected" in text
+        assert "1 failed" in text
+        assert "31 total" in text
+        assert "Client 0" in text
+        assert "Client 1" in text
+        assert "Client 2" in text
+        assert "FAILED" in text
+
+    def test_spawn_result_json_output(self) -> None:
+        clients = [
+            ClientResult(
+                client_id=0, connected=True, actions_sent=5, duration_seconds=1.0
+            ),
+        ]
+        result = SpawnResult(
+            total_clients=1,
+            successful_connections=1,
+            failed_connections=0,
+            total_actions_sent=5,
+            total_duration_seconds=1.0,
+            clients=clients,
+        )
+        json_str = result.model_dump_json()
+        restored = SpawnResult.model_validate_json(json_str)
+        assert restored == result
+
+
+# ---------------------------------------------------------------------------
+# Group G: CLI Integration
+# ---------------------------------------------------------------------------
+
+from click.testing import CliRunner
+
+from wowsim.cli import main
+
+
+class TestCLI:
+    """Verify spawn-clients CLI command."""
+
+    def test_cli_spawn_clients_success(self, mock_game_server: dict) -> None:
+        host, port = mock_game_server["host"], mock_game_server["port"]
+        runner = CliRunner()
+        result = runner.invoke(
+            main,
+            [
+                "spawn-clients",
+                "--count", "3",
+                "--duration", "0.5",
+                "--host", host,
+                "--port", str(port),
+                "--rate", "10",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        assert "Spawn Results" in result.output
+
+    def test_cli_spawn_clients_json(self, mock_game_server: dict) -> None:
+        host, port = mock_game_server["host"], mock_game_server["port"]
+        runner = CliRunner()
+        result = runner.invoke(
+            main,
+            [
+                "spawn-clients",
+                "--count", "2",
+                "--duration", "0.5",
+                "--host", host,
+                "--port", str(port),
+                "--format", "json",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        import json as _json
+
+        data = _json.loads(result.output)
+        assert data["total_clients"] == 2
