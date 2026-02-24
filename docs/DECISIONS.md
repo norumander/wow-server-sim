@@ -222,3 +222,22 @@
 - Clean separation of concerns: Session knows state transitions, Connection knows sockets
 - Connection's disconnect callback lets GameServer remove entries from the registry without coupling
 - Session is non-copyable/movable, Connection is non-copyable (shared_ptr ownership) — clear ownership semantics
+
+---
+
+## ADR-014: Event Ownership — unique_ptr with Session-ID Keying
+
+**Date:** 2026-02-23
+**Status:** Accepted
+
+**Context:** Need an ownership model for game events flowing from network thread through event queue to game thread processors. Options: shared_ptr (multi-owner), unique_ptr (single-owner), value semantics (copy), raw pointers with arena.
+
+**Decision:** `std::unique_ptr<GameEvent>` for single-ownership transfer. Events carry a `session_id` (not a pointer to Session/Entity) for loose coupling. Entity map keyed by `session_id` (`std::unordered_map<uint64_t, Entity>`). Type tag enum (`EventType`) enables safe `static_cast` downcasting without RTTI. Position struct defined in `entity.h` (world concept), included by `movement.h`.
+
+**Consequences:**
+- Zero-copy transfer through EventQueue (move semantics only)
+- No dangling references — events don't hold pointers to sessions or entities
+- Session-ID lookup at processing time handles disconnects gracefully (unknown session = skip + warn)
+- Type tag pattern avoids RTTI overhead of dynamic_cast — standard game engine technique
+- Entity map not mutex-protected — owned exclusively by game thread, consistent with ADR-002 ownership boundaries
+- Position in entity.h avoids circular dependency (entity.h ← movement.h, not bidirectional)

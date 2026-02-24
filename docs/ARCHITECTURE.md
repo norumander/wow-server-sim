@@ -78,6 +78,33 @@ The WoW Server Simulator consists of a C++17 game server and a Python tooling su
 - **Polish:** Migrates to thread-per-zone, each zone gets its own tick loop
 - **Test strategy:** 20 GoogleTest cases covering construction/config, start/stop lifecycle, tick execution, telemetry emission, overrun detection, and timing accuracy. Tests use high tick rates (100–1000 Hz) with generous bounds for CI scheduler variance
 
+### Event System (`src/server/events/`)
+- **Base class:** `wow::GameEvent` with `EventType` tag enum (`MOVEMENT`, `SPELL_CAST`, `COMBAT`) and `session_id`. Owned via `std::unique_ptr<GameEvent>` for single-ownership transfer through the event queue. Virtual destructor enables polymorphic deletion; type tag enables safe `static_cast` downcasting without RTTI overhead
+- **Event types:** `wow::MovementEvent` carries a target `Position`. `SPELL_CAST` and `COMBAT` types reserved for Steps 7–8
+- **String conversion:** `event_type_to_string()` free function returning `std::string_view`
+
+### Event Queue (`src/server/events/event_queue.h`)
+- **Implementation:** `wow::EventQueue` — thread-safe producer/consumer queue between network and game threads
+- **Thread safety:** Single `std::mutex` protects all operations. `push()` appends to internal vector; `drain()` uses `swap()` for O(1) bulk transfer, returning all queued events and clearing the queue atomically
+- **Telemetry accessors:** `size()` and `empty()` are mutex-protected for consistent reads
+- **Ownership boundary:** Network thread pushes events; game thread drains at tick start. Entity map is NOT mutex-protected — owned exclusively by the game thread
+- **Test strategy:** 4 GoogleTest cases covering empty drain, push/drain round-trip, drain-clears-queue semantics, and concurrent multi-thread push with single-thread drain
+
+### Movement Processor (`src/server/events/movement.h`)
+- **Implementation:** `wow::MovementProcessor::process()` filters events for `EventType::MOVEMENT`, downcasts via `static_cast<MovementEvent*>` (safe: type tag guarantees correct cast), looks up entity by `session_id`, and updates position
+- **Unknown sessions:** Skipped with error telemetry — no entity created, no crash
+- **Last-wins semantics:** Multiple movement events for the same session in one tick: processor iterates in order, last position overwrites earlier ones (matches WoW server behavior)
+- **Telemetry:** Emits `"Position updated"` event per movement with `session_id`, old position, and new position
+- **Return value:** Number of unique entities whose positions were updated (not number of events processed)
+- **Test strategy:** 5 GoogleTest cases covering single entity update, unknown session skip, multiple entities, last-wins for same session, and telemetry emission
+
+### Entity (`src/server/world/entity.h`)
+- **Implementation:** `wow::Entity` represents a player's in-world avatar, keyed by `session_id`. Stores a `wow::Position` (3D float: x, y, z). Default position is origin (0, 0, 0)
+- **Position struct:** `wow::Position` with `operator==`, `operator!=`, and `distance()` free function (Euclidean distance)
+- **MVP simplification:** Entity keyed by session_id — one entity per player. NPCs with independent entity IDs deferred to Step 8 (combat)
+- **Entity map:** `std::unordered_map<uint64_t, Entity>` owned by the game thread. Not mutex-protected (single-owner design)
+- **Test strategy:** 3 GoogleTest cases covering default position, session_id storage, and set_position mutation
+
 ### Zone (Self-Contained Processing Unit)
 - **Responsibility:** Owns its session registry, entity list, event queue, tick pipeline
 - **Isolation:** Exception guard around `zone.tick()` — crash in one zone cannot propagate
