@@ -267,3 +267,71 @@ class TestRollbackReversesDeactivate:
         action, fault_id = determine_rollback_action(config)
         assert action == "activate"
         assert fault_id == "memory-pressure"
+
+
+# ============================================================
+# Group F: Formatting (2 tests)
+# ============================================================
+
+
+class TestFormatStageResult:
+    """format_stage_result produces a one-line summary."""
+
+    def test_format(self) -> None:
+        from wowsim.pipeline import format_stage_result
+        from wowsim.models import StageResult
+
+        result = StageResult(
+            stage="build",
+            passed=True,
+            message="Build preconditions met",
+            duration_seconds=0.05,
+            health_status="healthy",
+        )
+        text = format_stage_result(result)
+        assert "build" in text.lower()
+        assert "PASS" in text or "pass" in text.lower()
+        assert "0.05" in text or "0.0" in text
+
+
+class TestFormatPipelineResult:
+    """format_pipeline_result produces a multi-line report."""
+
+    def test_format(self) -> None:
+        from wowsim.pipeline import format_pipeline_result
+        from wowsim.models import PipelineConfig, PipelineResult, StageResult
+
+        config = PipelineConfig(
+            fault_id="latency-spike", action="activate", version="1.0.0"
+        )
+        stages = [
+            StageResult(
+                stage="build", passed=True, message="OK",
+                duration_seconds=0.1, health_status="healthy",
+            ),
+            StageResult(
+                stage="validate", passed=True, message="OK",
+                duration_seconds=0.2, health_status="healthy",
+            ),
+            StageResult(
+                stage="canary", passed=True, message="Canary passed",
+                duration_seconds=5.0, health_status="healthy",
+            ),
+            StageResult(
+                stage="promote", passed=True, message="Promoted",
+                duration_seconds=0.0,
+            ),
+        ]
+        result = PipelineResult(
+            config=config,
+            stages=stages,
+            outcome="promoted",
+            total_duration_seconds=5.3,
+        )
+        text = format_pipeline_result(result)
+        assert "latency-spike" in text
+        assert "activate" in text
+        assert "1.0.0" in text
+        assert "PROMOTED" in text or "promoted" in text.lower()
+        assert "build" in text.lower()
+        assert "canary" in text.lower()
