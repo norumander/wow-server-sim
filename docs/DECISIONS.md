@@ -572,3 +572,31 @@ for the Docker layout, and the Dockerfile copies `scripts/` into the image.
 - No new Python or C++ code — zero test regression risk
 - Color narration provides a professional demo experience suitable for screen recording
 - Cross-platform detection handles both Windows (MSVC Debug output) and Linux (CMake default) build layouts
+
+---
+
+## ADR-029: Interactive Demo Dashboard — Single-Command Guided Experience
+
+**Date:** 2026-02-24
+**Status:** Accepted
+
+**Context:** All 24 implementation steps are complete. The project has a scripted demo (`demo.sh`) and a monitoring dashboard (`wowsim dashboard`), but they're separate experiences — the dashboard requires a running server and manual `--log-file` setup, and the demo script is non-interactive. Evaluators and reviewers need a single command that starts the server, opens the dashboard, and lets them interactively explore the reliability lifecycle with guided suggestions.
+
+**Decision:** Add `wowsim demo` command that auto-detects the server binary, manages server lifecycle as a subprocess, and launches an enhanced dashboard with:
+
+1. **Suggestion bar** — `compute_suggestion()` pure function drives a reactive `Static` widget showing context-aware guidance ("Press s to spawn players", "Press d to deactivate", etc.) based on player count, active faults, health status, and pipeline state.
+2. **Spawn clients keybinding (s)** — spawns 5 mock clients in a `@work(thread=True)` worker to avoid `asyncio.run()` conflict with Textual's event loop.
+3. **Fault picker modal (a)** — `FAULT_CATALOG` dict with all 8 faults (F1-F8), `FaultPickerScreen` ModalScreen with OptionList, selection activates via sync `activate_fault` in thread worker.
+4. **Pipeline keybinding (p)** — runs `run_pipeline()` in a thread worker, logs stage results to the event log.
+5. **Server lifecycle** — `demo_runner.py` contains testable pure functions (`find_server_binary`, `clean_telemetry`, `default_telemetry_path`) and a `ServerProcess` class for subprocess management with telemetry-based readiness detection.
+
+Server stays on standard ports (8080/8081), so separate terminals can still run any `wowsim` command against it during the demo.
+
+**Consequences:**
+- Single `wowsim demo` command provides a complete guided experience — zero manual setup
+- All new logic follows the project's pure-function-first architecture (testable without UI)
+- Thread workers for spawn/activate/pipeline avoid asyncio conflicts with Textual
+- FAULT_CATALOG provides a discoverable list of all 8 fault scenarios
+- Suggestion bar creates a self-documenting walkthrough without narration text
+- 40 new pytest cases (total 158 non-integration), zero regressions
+- Separate terminals can still interact via existing CLI commands during the demo
