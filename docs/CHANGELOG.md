@@ -7,6 +7,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- Performance benchmark suite (`wowsim.benchmark`): automated scaling tests composing mock_client + health_check + percentile computation. Runs client count sweep (default 0/10/25/50/100), computes P50/P95/P99 tick durations via nearest-rank method, evaluates against configurable thresholds (avg ≤ 50ms, p99 ≤ 100ms, overrun ≤ 5%). Pure function core with thin I/O wrappers for monkeypatch-testable orchestration (ADR-026)
+- `PercentileStats`, `ScenarioResult`, `BenchmarkConfig`, `BenchmarkResult` Pydantic v2 models in `wowsim.models` — percentile distributions, per-scenario outcomes, configurable thresholds, and full benchmark results with JSON serialization
+- `benchmark` CLI command: `wowsim benchmark --log-file <path> --counts 0,10,25,50,100 --duration 10 --rate 2 --settle 2 --max-avg-tick 50 --max-p99-tick 100 --max-overrun-pct 5 --format text|json`. Exit code 0/1 for CI integration
+- 20 pytest cases for benchmarks covering models (3), percentile computation (3), throughput (2), scenario evaluation (3), overall evaluation (2), formatting (2), orchestration (3), CLI (2). Total: 134 non-integration Python tests passing
 - Advanced fault scenarios F5-F8 in `src/server/fault/scenarios.h/.cpp`:
   - F5 CascadingZoneFailureFault: crashes source zone via exception, floods target zone with synthetic events. Configurable source_zone, target_zone, flood_multiplier
   - F6 SlowLeakFault: incrementing tick processing delay over time. Configurable increment_ms, increment_every. `current_delay_ms()` accessor

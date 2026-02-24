@@ -335,6 +335,26 @@ AUTHENTICATING + DISCONNECT           → DISCONNECTING
 - **CLI:** `wowsim deploy --fault-id <id> --action activate|deactivate --canary-duration <s> --canary-interval <s> --rollback-on critical|degraded --format text|json` with fault params (--delay-ms, --megabytes, --multiplier, --duration, --zone)
 - **Test strategy:** 20 pytest cases in 8 groups: models (3), build preconditions (3), validate gate (2), canary evaluation (3), rollback action (2), formatting (2), orchestration with monkeypatch (3), CLI integration (2)
 
+### Performance Benchmarks (`wowsim/benchmark.py`)
+- **Responsibility:** Automated scaling tests that verify server tick stability under increasing client load, producing pass/fail reports with percentile metrics (ADR-026)
+- **Composition pattern:** Composes existing tools with zero new I/O code — `mock_client.run_spawn()` for traffic generation, `health_check.compute_tick_health()` for tick analysis, `health_check.read_recent_entries()` for telemetry reading
+- **Pure function core:** Six testable functions with no I/O:
+  - `compute_percentiles(entries)` — P50/P95/P99 via nearest-rank method, stddev for jitter. Filters for `game_loop` "Tick completed" metrics
+  - `compute_throughput(spawn_result)` — total_actions / total_duration, zero-guarded
+  - `evaluate_scenario(tick_health, percentiles, throughput, count, config)` — pass when avg ≤ max_avg, p99 ≤ max_p99, overrun_pct ≤ max_overrun
+  - `evaluate_benchmark(scenarios)` — all-pass logic, summary identifying max passing client count or first failing count
+  - `format_scenario_result(result)` — one-line: `[PASS] 50 clients — avg 3.5ms, p99 8.2ms, 0.0% overrun`
+  - `format_benchmark_result(result)` — multi-line report with header, per-scenario lines, outcome
+- **I/O wrappers:** Three thin mockable functions:
+  - `_spawn_clients(config, count)` → `mock_client.run_spawn()`
+  - `_read_telemetry(config)` → `health_check.read_recent_entries()` (max_lines=2000)
+  - `_settle(seconds)` → `time.sleep()` (monkeypatchable for fast tests)
+- **Orchestrator:** `run_benchmark(config)` iterates client_counts, spawning clients (skipped for count=0 baseline), settling, reading telemetry, computing tick health + percentiles, and evaluating against thresholds
+- **Default thresholds:** max avg tick 50ms (full 20Hz tick budget), max P99 tick 100ms (log_parser CRIT threshold), max overrun 5% (stricter than health_check's 10%)
+- **Models:** `PercentileStats` (p50/p95/p99/jitter), `ScenarioResult` (per-count outcome), `BenchmarkConfig` (thresholds + connection settings), `BenchmarkResult` (all scenarios + overall pass/fail) — Pydantic v2 in `wowsim.models`
+- **CLI:** `wowsim benchmark --log-file <path> --counts 0,10,25,50,100 --duration 10 --rate 2 --settle 2 --max-avg-tick 50 --max-p99-tick 100 --max-overrun-pct 5 --format text|json`. Exit code 0 on pass, 1 on fail for CI integration
+- **Test strategy:** 20 pytest cases in 8 groups: models (3), percentile computation (3), throughput (2), scenario evaluation (3), overall evaluation (2), formatting (2), orchestration with monkeypatch (3), CLI integration (2)
+
 ## Concurrency Model
 
 **MVP (Three Threads):**
@@ -395,3 +415,4 @@ With `main.cpp` fully wired, tests can be extended with a real server subprocess
 - **Self-Registration:** Fault registry pattern
 - **Worker Thread + Watermark:** Dashboard sync I/O in worker thread, timestamp watermark for incremental event log updates (ADR-023)
 - **Staged Pipeline with Health Gates:** Deployment pipeline with pure gate functions, thin I/O wrappers, and monkeypatch-testable orchestrator (ADR-024)
+- **Tool Composition with Percentile Evaluation:** Benchmark suite composes mock_client + health_check + percentile computation into automated scaling tests with configurable thresholds (ADR-026)

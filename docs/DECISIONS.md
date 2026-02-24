@@ -501,3 +501,22 @@ Tick ordering: `control.process_pending_commands()` → `registry.on_tick(tick)`
 - F8 intentionally creates inconsistency between ZoneManager state and zone entities, producing "unknown session" errors that serve as the detection signal
 - All faults configurable via JSON params, activatable via control channel at runtime
 - 14 new GoogleTest cases (total 264) cover all four faults with no regressions
+
+---
+
+## ADR-026: Performance Benchmarks — Composing Existing Tools with Percentile Evaluation
+
+**Date:** 2026-02-24
+**Status:** Accepted
+
+**Context:** PRD requires "Server handles 50+ concurrent mock players without tick rate degradation" (Success Criterion #1). The server already emits tick duration/overrun telemetry and `mock_client.py` can spawn N clients, but there is no automated way to run scaling tests, compute percentile metrics, or produce pass/fail reports.
+
+**Decision:** Add a Python benchmark module (`wowsim.benchmark`) that composes existing tools — `mock_client.run_spawn()` for traffic generation and `health_check.compute_tick_health()` for tick analysis — with new percentile computation (P50/P95/P99 via nearest-rank, stddev jitter). Follow the same architecture as `pipeline.py`: pure evaluation functions → thin I/O wrappers → monkeypatch-testable orchestrator. Three configurable thresholds: max avg tick (default 50ms = full tick budget), max P99 tick (default 100ms = log_parser CRIT threshold), max overrun percentage (default 5% = stricter than health_check's 10%). CLI command `wowsim benchmark` with text/json output and exit code 0/1 for CI integration.
+
+**Consequences:**
+- Zero new I/O code — composes `run_spawn`, `read_recent_entries`, `compute_tick_health` from existing modules
+- Nearest-rank percentile method avoids scipy dependency — sufficient for operational benchmarks
+- Thresholds are configurable per-run — no need to rebuild for different SLOs
+- Exit code 0/1 enables CI gate usage (e.g., `wowsim benchmark --log-file ... || exit 1`)
+- 20 new pytest cases (total 134 non-integration) following identical test patterns as pipeline.py
+- Orchestrator is fully deterministic under monkeypatch — no flaky timing tests
