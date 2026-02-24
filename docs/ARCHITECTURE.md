@@ -6,46 +6,19 @@
 
 The WoW Server Simulator consists of a C++17 game server and a Python tooling suite. The server handles game simulation (tick loop, sessions, combat, spells, zones) while Python tools provide observability, fault injection, and traffic generation.
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                        Docker Container                         │
-│  ┌───────────────────────────────────────────────────────────┐  │
-│  │                    C++ Game Server                         │  │
-│  │                                                           │  │
-│  │  ┌─────────────┐    ┌──────────────────────────────────┐  │  │
-│  │  │   Network    │    │          ZoneManager              │  │  │
-│  │  │   Thread     │    │  ┌────────┐ ┌────────┐ ┌──────┐  │  │  │
-│  │  │             │───▶│  │ Zone 1 │ │ Zone 2 │ │Zone N│  │  │  │
-│  │  │  TCP Accept  │    │  │        │ │        │ │      │  │  │  │
-│  │  │  Read/Write  │    │  │ Tick   │ │ Tick   │ │ Tick │  │  │  │
-│  │  └─────────────┘    │  │Pipeline│ │Pipeline│ │Pline │  │  │  │
-│  │        │             │  └────────┘ └────────┘ └──────┘  │  │  │
-│  │        │             └──────────────────────────────────┘  │  │
-│  │        │                           │                       │  │
-│  │   ┌────▼────┐              ┌───────▼──────┐               │  │
-│  │   │ Intake  │              │  Telemetry   │               │  │
-│  │   │ Queue   │              │  Emitter     │               │  │
-│  │   └─────────┘              │ ┌──────────┐ │               │  │
-│  │                            │ │ Log File │ │               │  │
-│  │  ┌─────────────┐          │ │ (durable)│ │               │  │
-│  │  │  Control    │          │ ├──────────┤ │               │  │
-│  │  │  Channel    │◀── TCP   │ │   UDP    │ │               │  │
-│  │  │  (JSON/TCP) │          │ │(realtime)│ │               │  │
-│  │  └─────────────┘          │ └──────────┘ │               │  │
-│  │        ▲                   └──────────────┘               │  │
-│  └────────│──────────────────────────│───────────────────────┘  │
-└───────────│──────────────────────────│──────────────────────────┘
-            │                          │
-    ┌───────┴────────┐     ┌───────────▼───────────┐
-    │   wowsim CLI   │     │   wowsim dashboard    │
-    │                │     │     (Textual TUI)      │
-    │ • inject-fault │     │                        │
-    │ • health       │     │  Metrics │ Zone Table  │
-    │ • parse-logs   │     │  ────────┼───────────  │
-    │ • spawn-clients│     │  Event Log (scrolling) │
-    └────────────────┘     └────────────────────────┘
-         Host Python              Host Python
-```
+See the [System Overview Diagram](diagrams/system-overview.md) for an interactive Mermaid version of this architecture.
+
+## Architecture Diagrams
+
+Detailed Mermaid diagrams are available in [`docs/diagrams/`](diagrams/). GitHub renders these natively in markdown files.
+
+| Diagram | Description |
+|---------|-------------|
+| [System Overview](diagrams/system-overview.md) | High-level component diagram — server threads, queues, zones, Python tools, and ports |
+| [Thread Model](diagrams/thread-model.md) | 3-thread / 3-queue concurrency model with tick ordering |
+| [Tick Pipeline](diagrams/tick-pipeline.md) | Per-zone 8-phase pipeline with fault injection points and exception guard |
+| [Session State Machine](diagrams/session-state-machine.md) | 6-state session lifecycle with 10 transitions |
+| [Python Tool Composition](diagrams/python-tools.md) | Module dependency graph — core modules, composer modules, shared models |
 
 ## Component Descriptions
 
@@ -169,6 +142,8 @@ StateRecoveryPhase      ← CRASHED → DEGRADED → ACTIVE on success
 TelemetryEmitPhase      ← emit zone tick completed metric
 ```
 
+See the [Tick Pipeline Diagram](diagrams/tick-pipeline.md) for an annotated Mermaid version with fault injection points highlighted.
+
 ### Session State Machine (`src/server/session.h`)
 - **Implementation:** `wow::Session` class with `wow::SessionState` enum (6 states) and `wow::SessionEvent` enum (7 events). Each session auto-assigns a unique monotonic ID via `std::atomic<uint64_t>` counter
 - **States:** `CONNECTING → AUTHENTICATING → IN_WORLD → TRANSFERRING → DISCONNECTING → DESTROYED`
@@ -194,6 +169,8 @@ DISCONNECTING  + TIMEOUT              → DESTROYED
 CONNECTING     + DISCONNECT           → DESTROYED
 AUTHENTICATING + DISCONNECT           → DISCONNECTING
 ```
+
+See the [Session State Machine Diagram](diagrams/session-state-machine.md) for a visual state diagram of these transitions.
 
 ### Telemetry (`src/server/telemetry/logger.h`)
 - **Implementation:** `wow::Logger` singleton, initialized via `Logger::initialize(config)`, accessed via `Logger::instance()`
