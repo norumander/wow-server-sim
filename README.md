@@ -242,6 +242,16 @@ git clone <repo-url> && cd wow-server-sim
 docker compose up --build
 ```
 
+This builds the C++ server, installs Python tooling, and runs the full
+70-second reliability lifecycle demo automatically — detect, diagnose, fix,
+deploy with colored narration. No manual setup required.
+
+To run just the server (for interactive use with Python tools):
+
+```bash
+docker compose --profile server up --build server
+```
+
 The server exposes:
 - **8080** — Game traffic (TCP)
 - **8081** — Control channel for fault injection (TCP)
@@ -314,7 +324,7 @@ The server emits structured JSONL telemetry to `telemetry.jsonl`. Every line is 
 - **264** C++ tests (GoogleTest) — server core, events, zones, faults, control channel
 - **134** Python tests (pytest) — CLI tools, models, formatting, orchestration
 - **16** integration tests — connection lifecycle, fault injection/recovery, end-to-end
-- **27** Architecture Decision Records (ADRs)
+- **28** Architecture Decision Records (ADRs)
 - **8** fault injection scenarios (F1–F8)
 - **5** architecture diagrams (Mermaid)
 - **9** CLI modules under `wowsim`
@@ -333,7 +343,7 @@ The server emits structured JSONL telemetry to `telemetry.jsonl`. Every line is 
 ## Documentation
 
 - [Architecture](docs/ARCHITECTURE.md) — Component design, data flow, concurrency model
-- [Decision Records](docs/DECISIONS.md) — 27 ADRs for all architectural choices
+- [Decision Records](docs/DECISIONS.md) — 28 ADRs for all architectural choices
 - [Product Requirements](docs/PRD.md) — Full project scope, skills mapping, success criteria
 - [Changelog](docs/CHANGELOG.md) — Running log of all changes
 - [Capture Guide](docs/CAPTURE_GUIDE.md) — Instructions for recording screenshots and GIFs

@@ -7,6 +7,7 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- Docker Compose one-command demo: `docker compose up --build` builds and runs the full 70-second reliability lifecycle automatically. Server-only mode available via `--profile server`. Dockerfile now includes `scripts/` directory. `demo.sh` gains Docker binary path detection (ADR-028)
 - Polished README with skills mapping table, key features overview, inline Mermaid system-overview diagram, 4 sample terminal output blocks (healthy/critical health reports, anomaly detection, pipeline rollback), fault scenarios table (F1-F8), project stats, and 6 image placeholders with descriptive alt text. README is now a self-contained portfolio piece readable with or without captured screenshots
 - `docs/assets/` directory for future screenshots and GIFs, with `.gitkeep`
 - `docs/CAPTURE_GUIDE.md`: step-by-step instructions for recording 6 visual assets (2 GIFs, 4 PNGs) using asciinema/agg/gifsicle/pngquant, with per-asset commands, verification checks, and optimization tips
