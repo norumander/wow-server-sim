@@ -7,6 +7,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- Fixed-rate game loop (`wow::GameLoop`) with configurable tick rate (default 20 Hz / 50ms), sleep-for-remainder timing via `steady_clock`, overrun detection, background thread or blocking mode, and per-tick telemetry emission
+- 20 GoogleTest cases for game loop covering construction, lifecycle, tick execution, telemetry, overrun detection, and timing accuracy
 - Structured JSON telemetry logger (`wow::Logger` singleton) with configurable sinks (file, stdout, custom ostream), ISO 8601 timestamps with millisecond precision, and thread-safe writes
 - Logger convenience API: `metric()`, `event()`, `health()`, `error()` wrappers with optional structured `data` payload
 - 28 GoogleTest cases for telemetry logger covering schema compliance, type mapping, data handling, multi-line output, file I/O, and concurrent writes
