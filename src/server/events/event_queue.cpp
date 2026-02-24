@@ -1,29 +1,33 @@
 #include "server/events/event_queue.h"
 
+#include <utility>
+
 namespace wow {
 
-// ---------------------------------------------------------------------------
-// EventQueue — stub (implemented in Commit 2)
-// ---------------------------------------------------------------------------
-
-void EventQueue::push(std::unique_ptr<GameEvent> /*event*/)
+void EventQueue::push(std::unique_ptr<GameEvent> event)
 {
-    // stub
+    std::lock_guard<std::mutex> lock(mutex_);
+    events_.push_back(std::move(event));
 }
 
 std::vector<std::unique_ptr<GameEvent>> EventQueue::drain()
 {
-    return {};
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::vector<std::unique_ptr<GameEvent>> result;
+    result.swap(events_);
+    return result;
 }
 
 size_t EventQueue::size() const
 {
-    return 0;
+    std::lock_guard<std::mutex> lock(mutex_);
+    return events_.size();
 }
 
 bool EventQueue::empty() const
 {
-    return true;
+    std::lock_guard<std::mutex> lock(mutex_);
+    return events_.empty();
 }
 
 }  // namespace wow
