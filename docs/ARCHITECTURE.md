@@ -85,10 +85,31 @@ TelemetryEmitPhase      ← emit zone health metrics (file + UDP)
 FaultPostTickPhase      ← tick-scoped fault interceptors
 ```
 
-### Session State Machine
-States: `CONNECTING → AUTHENTICATING → IN_WORLD → TRANSFERRING → DISCONNECTING → DESTROYED`
+### Session State Machine (`src/server/session.h`)
+- **Implementation:** `wow::Session` class with `wow::SessionState` enum (6 states) and `wow::SessionEvent` enum (7 events). Each session auto-assigns a unique monotonic ID via `std::atomic<uint64_t>` counter
+- **States:** `CONNECTING → AUTHENTICATING → IN_WORLD → TRANSFERRING → DISCONNECTING → DESTROYED`
+- **Pattern:** Transition table — 10-entry `constexpr std::array<SessionTransition, 10>` of `{from_state, event, to_state}` tuples. All transitions flow through one `transition()` method that performs a linear scan (O(10), appropriate for table size)
+- **Valid transition:** Updates state, emits telemetry event with `session_id`, `from_state`, `to_state`, `event` fields, returns `true`
+- **Invalid transition:** State unchanged, emits telemetry error with `session_id`, `current_state`, `event` fields, returns `false`
+- **Telemetry guard:** `Logger::is_initialized()` check before emission — allows construction and use without requiring Logger setup (important for unit tests and early server bootstrap)
+- **Ownership:** Non-copyable, movable — enables ownership transfer from accept queue to zone
+- **String conversion:** `session_state_to_string()` and `session_event_to_string()` free functions returning `std::string_view`
+- **Scope boundary:** Pure in-memory state machine. No networking, no zone assignment, no reconnection timer, no sweep logic. Action callbacks deferred until networking needs side effects
+- **Test strategy:** 21 GoogleTest cases covering construction (3), valid transitions (10, one per table entry), invalid transitions (3), telemetry emission (3), and string conversion (2)
 
-Implemented as a transition table — central table of `{from_state, event, to_state, action}` tuples. All transitions flow through one `transition()` function with telemetry logging. Invalid transitions are rejected and logged.
+**Transition Table:**
+```
+CONNECTING     + AUTHENTICATE_SUCCESS → AUTHENTICATING
+AUTHENTICATING + ENTER_WORLD          → IN_WORLD
+IN_WORLD       + DISCONNECT           → DISCONNECTING
+IN_WORLD       + BEGIN_TRANSFER       → TRANSFERRING
+TRANSFERRING   + TRANSFER_COMPLETE    → IN_WORLD
+TRANSFERRING   + DISCONNECT           → DISCONNECTING
+DISCONNECTING  + RECONNECT            → AUTHENTICATING
+DISCONNECTING  + TIMEOUT              → DESTROYED
+CONNECTING     + DISCONNECT           → DESTROYED
+AUTHENTICATING + DISCONNECT           → DISCONNECTING
+```
 
 ### Telemetry (`src/server/telemetry/logger.h`)
 - **Implementation:** `wow::Logger` singleton, initialized via `Logger::initialize(config)`, accessed via `Logger::instance()`
