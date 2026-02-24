@@ -53,3 +53,16 @@ Screen {
     color: $text-muted;
     text-style: italic;
 }
+
+FaultPickerScreen {
+    align: center middle;
+}
+
+#fault-options {
+    width: 70;
+    height: auto;
+    max-height: 16;
+    border: solid $primary;
+    background: $surface;
+    padding: 1;
+}

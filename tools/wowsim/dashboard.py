@@ -94,6 +94,55 @@ def fault_action_label(active: bool) -> str:
     return "Deactivate" if active else "Activate"
 
 
+# ---------------------------------------------------------------------------
+# Fault catalog (all 8 scenarios with default params)
+# ---------------------------------------------------------------------------
+
+FAULT_CATALOG: dict[str, dict] = {
+    "latency-spike": {
+        "description": "Add 200ms delay to tick processing",
+        "params": {"delay_ms": 200},
+    },
+    "session-crash": {
+        "description": "Force-terminate a random player session",
+        "params": {},
+    },
+    "event-queue-flood": {
+        "description": "Inject 10x normal event volume",
+        "params": {"multiplier": 10},
+    },
+    "memory-pressure": {
+        "description": "Allocate and hold large buffers (50 MB)",
+        "params": {"megabytes": 50},
+    },
+    "cascading-zone-failure": {
+        "description": "Crash zone 1, flood zone 2 with redistributed load",
+        "params": {"source_zone": 1, "target_zone": 2},
+    },
+    "slow-leak": {
+        "description": "Increment tick delay by 1ms every 100 ticks",
+        "params": {"increment_ms": 1, "increment_every": 100},
+    },
+    "split-brain": {
+        "description": "Partition two zones so they can't sync state",
+        "params": {"phantom_count": 5},
+    },
+    "thundering-herd": {
+        "description": "Disconnect all players, reconnect simultaneously",
+        "params": {"reconnect_delay_ticks": 40},
+    },
+}
+"""All 8 fault injection scenarios with descriptions and default params."""
+
+
+def format_fault_option(fault_id: str, description: str) -> str:
+    """Format a fault as a single option line for the picker.
+
+    Example: 'latency-spike — Add 200ms delay to tick processing'
+    """
+    return f"{fault_id} — {description}"
+
+
 def filter_new_entries(
     entries: list[TelemetryEntry],
     last_ts: datetime | None,
@@ -158,7 +207,33 @@ try:
     from textual import work
     from textual.app import App, ComposeResult
     from textual.containers import Horizontal
-    from textual.widgets import DataTable, Footer, Header, RichLog, Static
+    from textual.screen import ModalScreen
+    from textual.widgets import DataTable, Footer, Header, OptionList, RichLog, Static
+
+    class FaultPickerScreen(ModalScreen[str | None]):
+        """Modal for selecting a fault to inject."""
+
+        BINDINGS = [("escape", "cancel", "Cancel")]
+
+        def compose(self) -> ComposeResult:
+            """Build a simple OptionList of faults."""
+            options = OptionList(id="fault-options")
+            for fault_id, info in FAULT_CATALOG.items():
+                options.add_option(format_fault_option(fault_id, info["description"]))
+            yield options
+
+        def on_option_list_option_selected(
+            self, event: OptionList.OptionSelected
+        ) -> None:
+            """Dismiss with the selected fault ID."""
+            # Extract fault_id from "fault-id — description"
+            text = str(event.option.prompt)
+            fault_id = text.split(" — ")[0]
+            self.dismiss(fault_id)
+
+        def action_cancel(self) -> None:
+            """Dismiss without selection."""
+            self.dismiss(None)
 
     class WoWDashboardApp(App):
         """Textual TUI dashboard for the WoW Server Simulator."""
@@ -347,29 +422,35 @@ try:
             )
             self.call_from_thread(self._trigger_refresh)
 
-        async def action_activate_fault(self) -> None:
-            """Activate the first inactive fault (demo convenience)."""
-            from wowsim.fault_trigger import ControlClient
+        def action_activate_fault(self) -> None:
+            """Open fault picker modal (key: a)."""
+            self.push_screen(FaultPickerScreen(), self._on_fault_picked)
 
-            target = None
-            for f in self._fault_list:
-                if not f.active:
-                    target = f
-                    break
-            if target is None:
-                self.notify("No inactive faults", severity="warning")
+        def _on_fault_picked(self, fault_id: str | None) -> None:
+            """Handle fault picker result — activate the chosen fault."""
+            if fault_id is None:
                 return
+            params = FAULT_CATALOG.get(fault_id, {}).get("params", {})
+            self._do_activate_fault(fault_id, params)
+
+        @work(thread=True)
+        def _do_activate_fault(self, fault_id: str, params: dict) -> None:
+            """Activate a fault via sync control client in a worker thread."""
+            from wowsim.fault_trigger import activate_fault
 
             try:
-                async with ControlClient(
-                    self._config.host, self._config.control_port
-                ) as client:
-                    await client.activate(target.id)
-                self.notify(f"Activated {target.id}")
+                activate_fault(
+                    self._config.host,
+                    self._config.control_port,
+                    fault_id,
+                    params=params,
+                )
+                self.call_from_thread(self.notify, f"Activated {fault_id}")
             except (OSError, Exception) as exc:
-                self.notify(f"Error: {exc}", severity="error")
-
-            self._trigger_refresh()
+                self.call_from_thread(
+                    self.notify, f"Error: {exc}", severity="error"
+                )
+            self.call_from_thread(self._trigger_refresh)
 
         async def action_deactivate_fault(self) -> None:
             """Deactivate the first active fault (demo convenience)."""
