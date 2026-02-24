@@ -54,6 +54,24 @@ source .venv/bin/activate
 python -m pytest tests/python/ -v
 ```
 
+## Run Demo
+
+The demo script walks through the full reliability lifecycle in ~70 seconds — no manual intervention required:
+
+```bash
+bash scripts/demo.sh
+```
+
+**What it does (6 phases):**
+1. **Baseline** — spawns 5 simulated players, verifies healthy server
+2. **Break** — injects a 200ms latency spike (4x tick budget overrun)
+3. **Diagnose** — scans telemetry for anomalies, identifies root cause
+4. **Fix** — deactivates the fault, verifies recovery
+5. **Pipeline** — runs automated canary deployment with auto-rollback
+6. **Summary** — final health check and lifecycle recap
+
+**Prerequisites:** built server binary + Python venv with `wowsim` installed (see Quick Start above).
+
 ## Architecture
 
 The server uses a two-thread model (network thread + game loop thread) with a fixed 20 Hz tick rate matching WoW's actual server tick rate. Zones are self-contained processing units with fault isolation — a crash in one zone cannot propagate to others.
