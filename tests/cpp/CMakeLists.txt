@@ -4,8 +4,10 @@ include(GoogleTest)
 add_executable(unit_tests
     unit/test_logger.cpp
     unit/test_game_loop.cpp
+    unit/test_session.cpp
     ${CMAKE_SOURCE_DIR}/src/server/telemetry/logger.cpp
     ${CMAKE_SOURCE_DIR}/src/server/game_loop.cpp
+    ${CMAKE_SOURCE_DIR}/src/server/session.cpp
 )
 target_link_libraries(unit_tests
     PRIVATE

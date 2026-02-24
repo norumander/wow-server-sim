@@ -59,6 +59,7 @@ FetchContent_MakeAvailable(googletest)
 add_executable(wow-server-sim
     src/server/main.cpp
     src/server/game_loop.cpp
+    src/server/session.cpp
     src/server/telemetry/logger.cpp
 )
 
