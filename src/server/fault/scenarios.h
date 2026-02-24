@@ -192,4 +192,33 @@ private:
     uint64_t tick_counter_ = 0;
 };
 
+/// F8: Thundering Herd — mass disconnect then simultaneous reconnect.
+///
+/// Phase 1: removes all PLAYER entities from each zone (NPCs preserved),
+/// storing their IDs. Phase 2: after reconnect_delay_ticks, re-adds all
+/// stored players as fresh Entity objects simultaneously. The burst of
+/// reconnections creates the "thundering herd" pattern in telemetry.
+class ThunderingHerdFault : public Fault {
+public:
+    FaultId id() const override;
+    std::string description() const override;
+    FaultMode mode() const override;
+    bool activate(const FaultConfig& config) override;
+    void deactivate() override;
+    bool is_active() const override;
+    void on_tick(uint64_t current_tick, Zone* zone) override;
+    FaultStatus status() const override;
+
+private:
+    bool active_ = false;
+    FaultConfig config_;
+    uint64_t activations_ = 0;
+    uint64_t ticks_elapsed_ = 0;
+    uint32_t reconnect_delay_ticks_ = 20;
+    std::map<uint32_t, bool> disconnect_done_;
+    std::map<uint32_t, std::vector<uint64_t>> stored_players_;
+    uint64_t disconnect_tick_ = 0;
+    std::map<uint32_t, bool> reconnect_done_;
+};
+
 }  // namespace wow

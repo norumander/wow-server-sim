@@ -496,4 +496,103 @@ FaultStatus SplitBrainFault::status() const {
     return s;
 }
 
+// --- F8: ThunderingHerdFault ---
+
+FaultId ThunderingHerdFault::id() const { return "thundering-herd"; }
+std::string ThunderingHerdFault::description() const { return "Mass disconnect all players, then simultaneous reconnect"; }
+FaultMode ThunderingHerdFault::mode() const { return FaultMode::TICK_SCOPED; }
+
+bool ThunderingHerdFault::activate(const FaultConfig& config) {
+    config_ = config;
+    active_ = true;
+    disconnect_done_.clear();
+    stored_players_.clear();
+    disconnect_tick_ = 0;
+    reconnect_done_.clear();
+    ticks_elapsed_ = 0;
+    ++activations_;
+    if (config.params.contains("reconnect_delay_ticks")) {
+        reconnect_delay_ticks_ = config.params["reconnect_delay_ticks"].get<uint32_t>();
+    } else {
+        reconnect_delay_ticks_ = 20;
+    }
+    return true;
+}
+
+void ThunderingHerdFault::deactivate() {
+    active_ = false;
+    disconnect_done_.clear();
+    stored_players_.clear();
+    disconnect_tick_ = 0;
+    reconnect_done_.clear();
+}
+
+bool ThunderingHerdFault::is_active() const { return active_; }
+
+void ThunderingHerdFault::on_tick(uint64_t current_tick, Zone* zone) {
+    if (!active_ || zone == nullptr) {
+        return;
+    }
+
+    auto zid = zone->zone_id();
+
+    // Phase 1: Mass disconnect — remove all PLAYER entities, store IDs
+    if (!disconnect_done_[zid]) {
+        disconnect_done_[zid] = true;
+        if (disconnect_tick_ == 0) {
+            disconnect_tick_ = current_tick;
+        }
+
+        std::vector<uint64_t> player_ids;
+        for (const auto& [session_id, entity] : zone->entities()) {
+            if (entity.entity_type() == EntityType::PLAYER) {
+                player_ids.push_back(session_id);
+            }
+        }
+
+        for (auto pid : player_ids) {
+            zone->remove_entity(pid);
+        }
+        stored_players_[zid] = std::move(player_ids);
+
+        if (Logger::is_initialized()) {
+            Logger::instance().event("fault", "Thundering herd: mass disconnect", {
+                {"fault_id", id()},
+                {"zone_id", zid},
+                {"players_disconnected", stored_players_[zid].size()}
+            });
+        }
+        return;
+    }
+
+    // Phase 2: Mass reconnect after delay
+    if (!reconnect_done_[zid] && disconnect_tick_ > 0 &&
+        current_tick >= disconnect_tick_ + reconnect_delay_ticks_) {
+        reconnect_done_[zid] = true;
+
+        for (auto pid : stored_players_[zid]) {
+            zone->add_entity(Entity(pid, EntityType::PLAYER));
+        }
+
+        if (Logger::is_initialized()) {
+            Logger::instance().event("fault", "Thundering herd: mass reconnect", {
+                {"fault_id", id()},
+                {"zone_id", zid},
+                {"players_reconnected", stored_players_[zid].size()}
+            });
+        }
+    }
+}
+
+FaultStatus ThunderingHerdFault::status() const {
+    FaultStatus s;
+    s.id = id();
+    s.mode = mode();
+    s.active = active_;
+    s.activations = activations_;
+    s.ticks_elapsed = ticks_elapsed_;
+    s.config = active_ ? config_.params : nlohmann::json::object();
+    return s;
+}
+
 }  // namespace wow
