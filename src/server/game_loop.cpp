@@ -25,17 +25,34 @@ void GameLoop::on_tick(TickCallback callback)
 
 void GameLoop::start()
 {
-    // Stub — does not launch a thread yet.
+    bool expected = false;
+    if (!running_.compare_exchange_strong(expected, true)) {
+        return;  // Already running.
+    }
+
+    thread_ = std::thread([this]() { loop_body(); });
 }
 
 void GameLoop::run()
 {
-    // Stub — does not execute the loop yet.
+    bool expected = false;
+    if (!running_.compare_exchange_strong(expected, true)) {
+        return;  // Already running.
+    }
+
+    loop_body();
 }
 
 void GameLoop::stop()
 {
-    // Stub — no-op.
+    bool expected = true;
+    if (!running_.compare_exchange_strong(expected, false)) {
+        return;  // Not running or already stopping.
+    }
+
+    if (thread_.joinable()) {
+        thread_.join();
+    }
 }
 
 bool GameLoop::is_running() const
@@ -55,12 +72,45 @@ std::chrono::nanoseconds GameLoop::tick_interval() const
 
 void GameLoop::loop_body()
 {
-    // Stub — not implemented yet.
+    Logger::instance().event("game_loop", "Game loop started", {
+        {"tick_rate_hz", config_.tick_rate_hz},
+        {"tick_interval_ms", std::chrono::duration_cast<
+            std::chrono::microseconds>(tick_interval_).count() / 1000.0}
+    });
+
+    while (running_.load()) {
+        auto tick_start = std::chrono::steady_clock::now();
+
+        execute_tick();
+
+        auto tick_end = std::chrono::steady_clock::now();
+        auto elapsed = tick_end - tick_start;
+        auto duration_ms = std::chrono::duration_cast<
+            std::chrono::microseconds>(elapsed).count() / 1000.0;
+        bool overrun = elapsed > tick_interval_;
+
+        Logger::instance().metric("game_loop", "Tick completed", {
+            {"tick", tick_count_.load() - 1},
+            {"duration_ms", duration_ms},
+            {"overrun", overrun}
+        });
+
+        if (!overrun) {
+            std::this_thread::sleep_for(tick_interval_ - elapsed);
+        }
+    }
+
+    Logger::instance().event("game_loop", "Game loop stopped", {
+        {"total_ticks", tick_count_.load()}
+    });
 }
 
 void GameLoop::execute_tick()
 {
-    // Stub — not implemented yet.
+    uint64_t current_tick = tick_count_.fetch_add(1);
+    for (auto& cb : callbacks_) {
+        cb(current_tick);
+    }
 }
 
 }  // namespace wow
