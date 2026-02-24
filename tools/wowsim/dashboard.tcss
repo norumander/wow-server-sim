@@ -1,0 +1,47 @@
+/* WoW Server Simulator — Dashboard Layout */
+
+Screen {
+    layout: vertical;
+}
+
+#status-bar {
+    height: 3;
+    padding: 0 1;
+    background: $surface;
+    border: solid $primary;
+    content-align: center middle;
+}
+
+#panels {
+    height: auto;
+    max-height: 12;
+}
+
+#tick-panel {
+    width: 1fr;
+    height: auto;
+    min-height: 5;
+    border: solid $primary;
+    padding: 0 1;
+}
+
+#zone-table {
+    width: 2fr;
+    height: auto;
+    min-height: 5;
+    border: solid $primary;
+}
+
+#fault-panel {
+    height: auto;
+    min-height: 4;
+    max-height: 10;
+    border: solid $primary;
+    padding: 0 1;
+}
+
+#event-log {
+    height: 1fr;
+    min-height: 6;
+    border: solid $primary;
+}

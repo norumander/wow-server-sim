@@ -114,3 +114,237 @@ class DashboardConfig(BaseModel):
     port: int = 8080
     control_port: int = 8081
     refresh_interval: float = 2.0
+
+
+# ---------------------------------------------------------------------------
+# Textual TUI Application
+# ---------------------------------------------------------------------------
+
+
+def _format_fault_table(faults: list) -> str:
+    """Format fault list as a text table for the fault panel."""
+    if not faults:
+        return "No faults registered"
+    header = f"{'ID':<24s} {'MODE':<14s} {'STATUS':<10s} {'ACTIVATIONS'}"
+    lines = [header, "-" * len(header)]
+    for f in faults:
+        status_str = "[bold]ACTIVE[/]" if f.active else "inactive"
+        lines.append(
+            f"{f.id:<24s} {f.mode:<14s} {status_str:<10s} {f.activations}"
+        )
+    return "\n".join(lines)
+
+
+try:
+    from textual import work
+    from textual.app import App, ComposeResult
+    from textual.containers import Horizontal
+    from textual.widgets import DataTable, Footer, Header, RichLog, Static
+
+    class WoWDashboardApp(App):
+        """Textual TUI dashboard for the WoW Server Simulator."""
+
+        CSS_PATH = "dashboard.tcss"
+        TITLE = "WoW Server Simulator — Dashboard"
+
+        BINDINGS = [
+            ("q", "quit", "Quit"),
+            ("r", "refresh", "Refresh"),
+            ("a", "activate_fault", "Activate"),
+            ("d", "deactivate_fault", "Deactivate"),
+            ("x", "deactivate_all", "Deact All"),
+        ]
+
+        def __init__(self, config: DashboardConfig) -> None:
+            super().__init__()
+            self._config = config
+            self._last_entry_ts: datetime | None = None
+            self._fault_list: list = []
+
+        def compose(self) -> ComposeResult:
+            """Build the widget tree."""
+            yield Header()
+            yield Static("Loading...", id="status-bar")
+            with Horizontal(id="panels"):
+                yield Static("TICK METRICS\n\nLoading...", id="tick-panel")
+                yield DataTable(id="zone-table")
+            yield Static("FAULT CONTROL\n\nLoading...", id="fault-panel")
+            yield RichLog(id="event-log", highlight=True, markup=True)
+            yield Footer()
+
+        def on_mount(self) -> None:
+            """Initialize zone table columns and start refresh timer."""
+            table = self.query_one("#zone-table", DataTable)
+            table.add_columns("Zone", "State", "Ticks", "Errors", "Avg (ms)")
+            self.set_interval(self._config.refresh_interval, self._trigger_refresh)
+            self._trigger_refresh()
+
+        def _trigger_refresh(self) -> None:
+            """Kick off both health and fault data fetches."""
+            self._fetch_health_data()
+            self._fetch_fault_list()
+
+        @work(exclusive=True, thread=True)
+        def _fetch_health_data(self) -> None:
+            """Fetch health data in a worker thread (sync I/O)."""
+            from wowsim.health_check import (
+                check_server_reachable,
+                compute_tick_health,
+                compute_zone_health,
+                determine_status,
+                estimate_player_count,
+                read_recent_entries,
+            )
+            from wowsim.log_parser import detect_anomalies
+
+            try:
+                entries = read_recent_entries(self._config.log_file)
+            except OSError:
+                entries = []
+
+            tick = compute_tick_health(entries)
+            zones = compute_zone_health(entries)
+            players = estimate_player_count(entries)
+            anomalies = detect_anomalies(entries)
+            status = determine_status(tick, zones, anomalies)
+            reachable = check_server_reachable(
+                self._config.host, self._config.port, timeout=1.0
+            )
+            uptime = tick.total_ticks if tick else 0
+
+            new_entries, new_ts = filter_new_entries(entries, self._last_entry_ts)
+
+            self.call_from_thread(
+                self._update_health_ui,
+                status, reachable, players, uptime, tick, zones, new_entries, new_ts,
+            )
+
+        def _update_health_ui(
+            self,
+            status: str,
+            reachable: bool,
+            players: int,
+            uptime: int,
+            tick: TickHealth | None,
+            zones: list,
+            new_entries: list[TelemetryEntry],
+            new_ts: datetime | None,
+        ) -> None:
+            """Update UI widgets with health data (runs on main thread)."""
+            # Status bar
+            status_bar = self.query_one("#status-bar", Static)
+            status_bar.update(format_status_bar(status, reachable, players, uptime))
+
+            # Tick panel
+            tick_panel = self.query_one("#tick-panel", Static)
+            tick_panel.update(f"TICK METRICS\n\n{format_tick_panel(tick)}")
+
+            # Zone table
+            table = self.query_one("#zone-table", DataTable)
+            table.clear()
+            for z in zones:
+                table.add_row(
+                    str(z.zone_id),
+                    z.state,
+                    str(z.tick_count),
+                    str(z.error_count),
+                    f"{z.avg_tick_duration_ms:.1f}",
+                )
+
+            # Event log
+            if new_entries:
+                self._last_entry_ts = new_ts
+                log = self.query_one("#event-log", RichLog)
+                for entry in new_entries:
+                    log.write(format_event_line(entry))
+
+        @work(exclusive=True)
+        async def _fetch_fault_list(self) -> None:
+            """Fetch fault list via async ControlClient."""
+            from wowsim.fault_trigger import ControlClient
+
+            try:
+                async with ControlClient(
+                    self._config.host, self._config.control_port
+                ) as client:
+                    resp = await client.list_faults()
+                    faults = resp.faults or []
+            except (OSError, Exception):
+                faults = self._fault_list
+
+            self._fault_list = faults
+            fault_panel = self.query_one("#fault-panel", Static)
+            fault_panel.update(
+                f"FAULT CONTROL\n\n{_format_fault_table(faults)}"
+            )
+
+        def action_refresh(self) -> None:
+            """Manual refresh triggered by 'r' key."""
+            self._trigger_refresh()
+            self.notify("Refreshed")
+
+        async def action_activate_fault(self) -> None:
+            """Activate the first inactive fault (demo convenience)."""
+            from wowsim.fault_trigger import ControlClient
+
+            target = None
+            for f in self._fault_list:
+                if not f.active:
+                    target = f
+                    break
+            if target is None:
+                self.notify("No inactive faults", severity="warning")
+                return
+
+            try:
+                async with ControlClient(
+                    self._config.host, self._config.control_port
+                ) as client:
+                    await client.activate(target.id)
+                self.notify(f"Activated {target.id}")
+            except (OSError, Exception) as exc:
+                self.notify(f"Error: {exc}", severity="error")
+
+            self._trigger_refresh()
+
+        async def action_deactivate_fault(self) -> None:
+            """Deactivate the first active fault (demo convenience)."""
+            from wowsim.fault_trigger import ControlClient
+
+            target = None
+            for f in self._fault_list:
+                if f.active:
+                    target = f
+                    break
+            if target is None:
+                self.notify("No active faults", severity="warning")
+                return
+
+            try:
+                async with ControlClient(
+                    self._config.host, self._config.control_port
+                ) as client:
+                    await client.deactivate(target.id)
+                self.notify(f"Deactivated {target.id}")
+            except (OSError, Exception) as exc:
+                self.notify(f"Error: {exc}", severity="error")
+
+            self._trigger_refresh()
+
+        async def action_deactivate_all(self) -> None:
+            """Deactivate all active faults."""
+            from wowsim.fault_trigger import ControlClient
+
+            try:
+                async with ControlClient(
+                    self._config.host, self._config.control_port
+                ) as client:
+                    await client.deactivate_all()
+                self.notify("All faults deactivated")
+            except (OSError, Exception) as exc:
+                self.notify(f"Error: {exc}", severity="error")
+
+            self._trigger_refresh()
+
+except ImportError:
+    pass
