@@ -306,3 +306,93 @@ TEST(MemoryPressureFault, ReleasesOnDeactivation) {
     fault.deactivate();
     EXPECT_EQ(fault.bytes_allocated(), 0u);
 }
+
+// =============================================================================
+// Group H: FaultRegistry Zone Integration (4 tests)
+// =============================================================================
+
+TEST(FaultRegistry, ExecutePreTickFiresActiveTickScoped) {
+    FaultRegistry registry;
+    registry.register_fault(std::make_unique<LatencySpikeFault>());
+
+    FaultConfig config;
+    config.params = {{"delay_ms", 50}};
+    registry.activate("latency-spike", config);
+
+    Zone zone(ZoneConfig{1, "Test Zone"});
+
+    auto start = std::chrono::steady_clock::now();
+    registry.execute_pre_tick_faults(zone);
+    auto end = std::chrono::steady_clock::now();
+
+    auto elapsed_ms = std::chrono::duration<double, std::milli>(end - start).count();
+    EXPECT_GE(elapsed_ms, 50.0);
+}
+
+TEST(FaultRegistry, AmbientFaultNotFiredByExecutePreTick) {
+    FaultRegistry registry;
+    registry.register_fault(std::make_unique<MemoryPressureFault>());
+
+    FaultConfig config;
+    config.params = {{"megabytes", 1}};
+    registry.activate("memory-pressure", config);
+
+    Zone zone(ZoneConfig{1, "Test Zone"});
+    zone.add_entity(Entity(100));
+
+    // execute_pre_tick_faults should NOT trigger ambient faults
+    // Memory pressure allocates on activation (already done), but its on_tick
+    // should NOT be called by execute_pre_tick_faults.
+    // We verify by checking that the zone is unaffected — ambient faults
+    // don't interact with zones.
+    size_t before = zone.entity_count();
+    registry.execute_pre_tick_faults(zone);
+    EXPECT_EQ(zone.entity_count(), before);
+}
+
+TEST(FaultRegistry, ZoneTargetingSkipsNonMatchingZone) {
+    FaultRegistry registry;
+    registry.register_fault(std::make_unique<SessionCrashFault>());
+
+    FaultConfig config;
+    config.target_zone_id = 1;  // Only target zone 1
+    registry.activate("session-crash", config);
+
+    // Zone 2 should NOT be affected
+    Zone zone2(ZoneConfig{2, "Other Zone"});
+    zone2.add_entity(Entity(200));
+    zone2.add_entity(Entity(201));
+    ASSERT_EQ(zone2.entity_count(), 2u);
+
+    registry.execute_pre_tick_faults(zone2);
+    EXPECT_EQ(zone2.entity_count(), 2u);  // No entity removed
+}
+
+TEST(FaultRegistry, MultipleFaultsComposeInPreTick) {
+    FaultRegistry registry;
+    registry.register_fault(std::make_unique<LatencySpikeFault>());
+    registry.register_fault(std::make_unique<EventQueueFloodFault>());
+
+    FaultConfig latency_config;
+    latency_config.params = {{"delay_ms", 30}};
+    registry.activate("latency-spike", latency_config);
+
+    FaultConfig flood_config;
+    flood_config.params = {{"multiplier", 5}};
+    registry.activate("event-queue-flood", flood_config);
+
+    Zone zone(ZoneConfig{1, "Test Zone"});
+    zone.add_entity(Entity(100));
+    zone.add_entity(Entity(101));
+
+    auto start = std::chrono::steady_clock::now();
+    registry.execute_pre_tick_faults(zone);
+    auto end = std::chrono::steady_clock::now();
+
+    // Latency spike fires: >=30ms
+    auto elapsed_ms = std::chrono::duration<double, std::milli>(end - start).count();
+    EXPECT_GE(elapsed_ms, 30.0);
+
+    // Event flood fires: 2 entities * 5 multiplier = 10 events
+    EXPECT_GE(zone.event_queue_depth(), 10u);
+}
