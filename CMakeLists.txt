@@ -67,6 +67,10 @@ add_executable(wow-server-sim
     src/server/connection.cpp
     src/server/session.cpp
     src/server/telemetry/logger.cpp
+    src/server/events/event.cpp
+    src/server/events/movement.cpp
+    src/server/events/event_queue.cpp
+    src/server/world/entity.cpp
 )
 
 target_link_libraries(wow-server-sim
