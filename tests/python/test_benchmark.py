@@ -177,3 +177,201 @@ class TestPercentilesNoTicks:
 
         result = compute_percentiles([])
         assert result is None
+
+
+# ============================================================
+# Group C: Throughput Computation (2 tests)
+# ============================================================
+
+
+class TestThroughputNormal:
+    """compute_throughput returns actions/sec from a SpawnResult."""
+
+    def test_normal(self) -> None:
+        from wowsim.benchmark import compute_throughput
+        from wowsim.models import SpawnResult
+
+        result = SpawnResult(
+            total_clients=10,
+            successful_connections=10,
+            failed_connections=0,
+            total_actions_sent=100,
+            total_duration_seconds=10.0,
+            clients=[],
+        )
+        assert compute_throughput(result) == 10.0
+
+
+class TestThroughputZeroDuration:
+    """compute_throughput returns 0.0 when duration is zero."""
+
+    def test_zero_duration(self) -> None:
+        from wowsim.benchmark import compute_throughput
+        from wowsim.models import SpawnResult
+
+        result = SpawnResult(
+            total_clients=0,
+            successful_connections=0,
+            failed_connections=0,
+            total_actions_sent=0,
+            total_duration_seconds=0.0,
+            clients=[],
+        )
+        assert compute_throughput(result) == 0.0
+
+
+# ============================================================
+# Group D: Scenario Evaluation (3 tests)
+# ============================================================
+
+
+def _make_scenario_inputs(
+    avg_ms: float = 3.5,
+    p99_ms: float = 8.0,
+    overrun_pct: float = 0.0,
+    count: int = 50,
+):
+    """Build inputs for evaluate_scenario tests."""
+    from wowsim.models import BenchmarkConfig, PercentileStats, TickHealth
+
+    tick = TickHealth(
+        total_ticks=200,
+        avg_duration_ms=avg_ms,
+        max_duration_ms=p99_ms,
+        min_duration_ms=1.0,
+        overrun_count=int(overrun_pct * 2),
+        overrun_pct=overrun_pct,
+    )
+    percentiles = PercentileStats(
+        p50_ms=avg_ms, p95_ms=p99_ms * 0.9, p99_ms=p99_ms, jitter_ms=1.0
+    )
+    config = BenchmarkConfig()
+    return tick, percentiles, 100.0, count, config
+
+
+class TestScenarioEvalAllPass:
+    """evaluate_scenario passes when all thresholds are met."""
+
+    def test_passes(self) -> None:
+        from wowsim.benchmark import evaluate_scenario
+
+        tick, percentiles, throughput, count, config = _make_scenario_inputs()
+        result = evaluate_scenario(tick, percentiles, throughput, count, config)
+        assert result.passed is True
+        assert result.client_count == 50
+
+
+class TestScenarioEvalFailAvg:
+    """evaluate_scenario fails when avg tick exceeds threshold."""
+
+    def test_fail_avg(self) -> None:
+        from wowsim.benchmark import evaluate_scenario
+
+        tick, percentiles, throughput, count, config = _make_scenario_inputs(
+            avg_ms=60.0
+        )
+        result = evaluate_scenario(tick, percentiles, throughput, count, config)
+        assert result.passed is False
+        assert "avg" in result.message.lower()
+
+
+class TestScenarioEvalFailP99:
+    """evaluate_scenario fails when p99 tick exceeds threshold."""
+
+    def test_fail_p99(self) -> None:
+        from wowsim.benchmark import evaluate_scenario
+
+        tick, percentiles, throughput, count, config = _make_scenario_inputs(
+            p99_ms=150.0
+        )
+        result = evaluate_scenario(tick, percentiles, throughput, count, config)
+        assert result.passed is False
+        assert "p99" in result.message.lower()
+
+
+# ============================================================
+# Group E: Overall Evaluation (2 tests)
+# ============================================================
+
+
+class TestOverallEvalAllPass:
+    """evaluate_benchmark passes when all scenarios pass."""
+
+    def test_all_pass(self) -> None:
+        from wowsim.benchmark import evaluate_benchmark
+        from wowsim.models import PercentileStats, ScenarioResult, TickHealth
+
+        tick = TickHealth(
+            total_ticks=200,
+            avg_duration_ms=3.5,
+            max_duration_ms=8.0,
+            min_duration_ms=1.0,
+            overrun_count=0,
+            overrun_pct=0.0,
+        )
+        percentiles = PercentileStats(
+            p50_ms=3.5, p95_ms=6.0, p99_ms=8.0, jitter_ms=1.0
+        )
+        scenarios = [
+            ScenarioResult(
+                client_count=count,
+                tick_health=tick,
+                percentiles=percentiles,
+                throughput_actions_per_sec=100.0,
+                passed=True,
+                message="All thresholds met",
+            )
+            for count in [0, 10, 50]
+        ]
+        passed, message = evaluate_benchmark(scenarios)
+        assert passed is True
+        assert "50" in message
+
+
+class TestOverallEvalPartialFail:
+    """evaluate_benchmark fails and identifies failing count."""
+
+    def test_partial_fail(self) -> None:
+        from wowsim.benchmark import evaluate_benchmark
+        from wowsim.models import PercentileStats, ScenarioResult, TickHealth
+
+        tick = TickHealth(
+            total_ticks=200,
+            avg_duration_ms=3.5,
+            max_duration_ms=8.0,
+            min_duration_ms=1.0,
+            overrun_count=0,
+            overrun_pct=0.0,
+        )
+        percentiles = PercentileStats(
+            p50_ms=3.5, p95_ms=6.0, p99_ms=8.0, jitter_ms=1.0
+        )
+        scenarios = [
+            ScenarioResult(
+                client_count=0,
+                tick_health=tick,
+                percentiles=percentiles,
+                throughput_actions_per_sec=0.0,
+                passed=True,
+                message="OK",
+            ),
+            ScenarioResult(
+                client_count=50,
+                tick_health=tick,
+                percentiles=percentiles,
+                throughput_actions_per_sec=100.0,
+                passed=True,
+                message="OK",
+            ),
+            ScenarioResult(
+                client_count=100,
+                tick_health=tick,
+                percentiles=percentiles,
+                throughput_actions_per_sec=200.0,
+                passed=False,
+                message="p99 exceeded",
+            ),
+        ]
+        passed, message = evaluate_benchmark(scenarios)
+        assert passed is False
+        assert "100" in message
