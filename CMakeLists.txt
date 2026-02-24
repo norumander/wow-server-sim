@@ -77,6 +77,7 @@ add_executable(wow-server-sim
     src/server/world/zone_manager.cpp
     src/server/fault/injector.cpp
     src/server/fault/scenarios.cpp
+    src/server/session_event_queue.cpp
     src/control/control_channel.cpp
 )
 

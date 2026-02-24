@@ -28,6 +28,7 @@ add_executable(unit_tests
     ${CMAKE_SOURCE_DIR}/src/server/world/zone_manager.cpp
     ${CMAKE_SOURCE_DIR}/src/server/fault/injector.cpp
     ${CMAKE_SOURCE_DIR}/src/server/fault/scenarios.cpp
+    ${CMAKE_SOURCE_DIR}/src/server/session_event_queue.cpp
     ${CMAKE_SOURCE_DIR}/src/control/control_channel.cpp
 )
 target_link_libraries(unit_tests

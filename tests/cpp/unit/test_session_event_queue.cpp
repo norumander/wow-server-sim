@@ -62,7 +62,7 @@ TEST(SessionEventQueue, ConcurrentPush_SingleDrain)
     std::vector<std::thread> threads;
     threads.reserve(kThreads);
     for (int t = 0; t < kThreads; ++t) {
-        threads.emplace_back([&queue, t] {
+        threads.emplace_back([&queue, t, kEventsPerThread] {
             for (int i = 0; i < kEventsPerThread; ++i) {
                 uint64_t id = static_cast<uint64_t>(t * kEventsPerThread + i);
                 queue.push({wow::SessionEventType::CONNECTED, id});
