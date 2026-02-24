@@ -10,6 +10,7 @@ from __future__ import annotations
 from wowsim.models import (
     HealthReport,
     PipelineConfig,
+    PipelineResult,
     StageResult,
 )
 
@@ -91,3 +92,31 @@ def determine_rollback_action(config: PipelineConfig) -> tuple[str, str]:
     """
     reverse = "deactivate" if config.action == "activate" else "activate"
     return (reverse, config.fault_id)
+
+
+# ---------------------------------------------------------------------------
+# Formatting (no I/O)
+# ---------------------------------------------------------------------------
+
+
+def format_stage_result(result: StageResult) -> str:
+    """One-line stage summary: [PASS/FAIL] stage (duration) — message."""
+    tag = "PASS" if result.passed else "FAIL"
+    return f"[{tag}] {result.stage:<10s} ({result.duration_seconds:.2f}s) — {result.message}"
+
+
+def format_pipeline_result(result: PipelineResult) -> str:
+    """Multi-line pipeline report with header, stages, and outcome."""
+    lines: list[str] = []
+    lines.append("=== Hotfix Pipeline Report ===")
+    lines.append(f"Version: {result.config.version}")
+    lines.append(f"Fault:   {result.config.fault_id}")
+    lines.append(f"Action:  {result.config.action}")
+    lines.append("")
+    lines.append("Stages:")
+    for stage in result.stages:
+        lines.append(f"  {format_stage_result(stage)}")
+    lines.append("")
+    lines.append(f"Outcome: {result.outcome.upper()}")
+    lines.append(f"Total:   {result.total_duration_seconds:.2f}s")
+    return "\n".join(lines)
