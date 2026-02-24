@@ -452,3 +452,27 @@ Tick ordering: `control.process_pending_commands()` → `registry.on_tick(tick)`
 - Pure formatting functions have 16 unit tests with no Textual dependency
 - Dashboard refresh interval is configurable (default 2s) via CLI `--refresh` option
 - Textual CSS provides clean separation of layout from logic
+
+---
+
+## ADR-024: Hotfix Pipeline — Fault-as-Deployment with Staged Health Gates
+
+**Date:** 2026-02-24
+**Status:** Accepted
+
+**Context:** The PRD requires a "simulated build-validate-canary-promote-rollback pipeline" with "automated health checks at each stage" and "rollback triggers based on telemetry thresholds." The server already has fault injection (activate/deactivate), health checking (telemetry-based), and a live dashboard. The pipeline needs to compose these existing tools into a deployment lifecycle without adding new C++ code.
+
+**Decision:**
+1. **Fault-as-deployment metaphor.** Activating a fault = deploying a change. Deactivating = deploying a fix. Rollback = reversing the action. This maps naturally to the existing fault system and makes the pipeline demonstrable with the live server.
+2. **Five-stage pipeline:** BUILD (health gate: reachable + not critical) → VALIDATE (health snapshot) → CANARY (execute deploy, poll health) → PROMOTE (success) or ROLLBACK (reverse action). Abort on BUILD or VALIDATE failure.
+3. **Pure function core** with thin I/O wrappers. Six pure gate/formatting functions for testability. Three I/O wrappers (`_get_health_report`, `_execute_deploy_action`, `_execute_rollback`) compose `health_check.build_health_report()` and `fault_trigger.activate_fault()`/`deactivate_fault()`. Orchestrator calls wrappers and gates.
+4. **Monkeypatch testing strategy.** Orchestration tests replace I/O wrappers with deterministic mocks via `monkeypatch.setattr`. Canary durations set to 0.1s for fast tests. No real server or network in unit tests.
+5. **Pydantic models** for configuration and results: `PipelineConfig`, `StageResult`, `PipelineResult`. Enables `--format json` CLI output and programmatic consumption.
+6. **CLI integration:** `wowsim deploy --fault-id <id> --action activate|deactivate` with canary duration, poll interval, rollback threshold, fault params, and text/json output.
+
+**Consequences:**
+- Zero C++ changes — pipeline is purely additive Python tooling
+- Composes all existing tools (health_check, fault_trigger, log_parser) validating the modular architecture
+- 20 pytest cases cover models, gate functions, formatting, orchestration, and CLI
+- Pipeline is demonstrable with the live server: activate a latency spike, watch canary detect it, observe rollback
+- Sync orchestrator with `time.sleep()` polling is simple and sufficient — no async complexity needed for a deployment pipeline

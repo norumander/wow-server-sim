@@ -7,6 +7,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- Hotfix deployment pipeline (`wowsim.pipeline`): staged build → validate → canary → promote/rollback lifecycle composing health_check and fault_trigger modules. Fault-as-deployment metaphor maps fault activation to deploy and deactivation to fix (ADR-024)
+- `PipelineConfig`, `StageResult`, `PipelineResult` Pydantic v2 models in `wowsim.models` — configuration, per-stage outcomes, and full pipeline results with JSON serialization
+- `deploy` CLI command: `wowsim deploy --fault-id <id> --action activate|deactivate` with canary duration/interval, rollback threshold, fault params, and text/json output
+- Pure pipeline gate functions: `check_build_preconditions`, `check_validate_gate`, `evaluate_canary_health`, `determine_rollback_action`, `format_stage_result`, `format_pipeline_result` — independently testable without I/O
+- Pipeline I/O wrappers composing `health_check.build_health_report()` and `fault_trigger.activate_fault()`/`deactivate_fault()` for mockable orchestration
+- 20 pytest cases for pipeline covering models (3), gate functions (10), formatting (2), orchestration (3), CLI (2). Total: 130 Python tests passing
 - Monitoring dashboard (`wowsim.dashboard`): Textual TUI with auto-refreshing status bar, tick metrics panel, zone health DataTable, fault control panel, and scrolling event log. Worker-thread health refresh for non-blocking sync I/O, async fault queries via ControlClient, timestamp watermark for duplicate-free event log updates (ADR-023)
 - `DashboardConfig` Pydantic v2 model in `wowsim.dashboard` — configuration for log file path, server addresses, and refresh interval
 - `dashboard` CLI command: `wowsim dashboard --log-file <path> --host <host> --port <port> --control-port <port> --refresh <seconds>`. Replaces placeholder stub

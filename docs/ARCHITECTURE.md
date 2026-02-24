@@ -311,6 +311,26 @@ AUTHENTICATING + DISCONNECT           → DISCONNECTING
 - **CLI:** `wowsim dashboard --log-file <path> --host <host> --port <port> --control-port <port> --refresh <seconds>`
 - **Test strategy:** 16 pytest cases in 8 groups: status bar formatting (2), tick panel formatting (2), style mapping (1), event line formatting (2), fault label (2), entry filtering with watermark (3), config defaults/overrides (2), CLI integration (2)
 
+### Hotfix Pipeline (`wowsim/pipeline.py`)
+- **Responsibility:** Orchestrate a staged deployment lifecycle (build → validate → canary → promote/rollback) by composing existing health_check and fault_trigger modules
+- **Deployment metaphor (ADR-024):** Activating a fault = deploying a change. Deactivating = deploying a fix. Rollback = reversing the action. Maps naturally to the existing fault injection system
+- **Five stages:** BUILD (health gate: reachable + not critical) → VALIDATE (full health snapshot, must be reachable) → CANARY (execute deploy action, poll health at configurable intervals) → PROMOTE (canary passed, declare success) or ROLLBACK (canary failed, reverse deploy action)
+- **Pure function core:** Six testable functions with no I/O:
+  - `check_build_preconditions(reachable, status)` — pass if reachable and not critical (degraded allowed)
+  - `check_validate_gate(report)` — pass if server reachable
+  - `evaluate_canary_health(samples, threshold)` — fail on first sample at or above threshold severity
+  - `determine_rollback_action(config)` — reverse activate↔deactivate
+  - `format_stage_result(result)` — one-line stage summary
+  - `format_pipeline_result(result)` — multi-line pipeline report
+- **I/O wrappers:** Three thin mockable functions composing existing modules:
+  - `_get_health_report(config)` → `health_check.build_health_report()`
+  - `_execute_deploy_action(config)` → `fault_trigger.activate_fault()` or `deactivate_fault()`
+  - `_execute_rollback(config)` → reverse of deploy action
+- **Orchestrator:** `run_pipeline(config)` — sync function calling I/O wrappers, feeding results to pure gate functions, recording stage results. Canary uses `time.sleep()` polling
+- **Models:** `PipelineConfig` (fault_id, action, canary settings, connection settings), `StageResult` (per-stage outcome), `PipelineResult` (all stages + final outcome) — Pydantic v2 in `wowsim.models`
+- **CLI:** `wowsim deploy --fault-id <id> --action activate|deactivate --canary-duration <s> --canary-interval <s> --rollback-on critical|degraded --format text|json` with fault params (--delay-ms, --megabytes, --multiplier, --duration, --zone)
+- **Test strategy:** 20 pytest cases in 8 groups: models (3), build preconditions (3), validate gate (2), canary evaluation (3), rollback action (2), formatting (2), orchestration with monkeypatch (3), CLI integration (2)
+
 ## Concurrency Model
 
 **MVP (Three Threads):**
@@ -370,3 +390,4 @@ With `main.cpp` fully wired, tests can be extended with a real server subprocess
 - **Exception Guard:** Zone-level fault isolation
 - **Self-Registration:** Fault registry pattern
 - **Worker Thread + Watermark:** Dashboard sync I/O in worker thread, timestamp watermark for incremental event log updates (ADR-023)
+- **Staged Pipeline with Health Gates:** Deployment pipeline with pure gate functions, thin I/O wrappers, and monkeypatch-testable orchestrator (ADR-024)
