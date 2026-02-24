@@ -12,6 +12,7 @@ add_executable(unit_tests
     unit/test_zone.cpp
     unit/test_fault_injection.cpp
     unit/test_control_channel.cpp
+    unit/test_session_event_queue.cpp
     ${CMAKE_SOURCE_DIR}/src/server/telemetry/logger.cpp
     ${CMAKE_SOURCE_DIR}/src/server/game_loop.cpp
     ${CMAKE_SOURCE_DIR}/src/server/session.cpp
