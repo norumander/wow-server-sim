@@ -1,4 +1,4 @@
-"""Pydantic models for server telemetry entries and analysis results."""
+"""Pydantic models for server telemetry entries, analysis results, and control channel protocol."""
 
 from __future__ import annotations
 
@@ -47,3 +47,66 @@ class ParseResult(BaseModel):
     entries: list[TelemetryEntry]
     summary: LogSummary
     anomalies: list[Anomaly]
+
+
+# ---------------------------------------------------------------------------
+# Control Channel Protocol Models
+# ---------------------------------------------------------------------------
+
+
+class FaultActivateRequest(BaseModel):
+    """Request to activate a fault via the control channel."""
+
+    command: Literal["activate"] = "activate"
+    fault_id: str
+    params: dict[str, Any] = {}
+    target_zone_id: int = 0
+    duration_ticks: int = 0
+
+
+class FaultDeactivateRequest(BaseModel):
+    """Request to deactivate a specific fault."""
+
+    command: Literal["deactivate"] = "deactivate"
+    fault_id: str
+
+
+class FaultDeactivateAllRequest(BaseModel):
+    """Request to deactivate all active faults."""
+
+    command: Literal["deactivate_all"] = "deactivate_all"
+
+
+class FaultStatusRequest(BaseModel):
+    """Request for the status of a specific fault."""
+
+    command: Literal["status"] = "status"
+    fault_id: str
+
+
+class FaultListRequest(BaseModel):
+    """Request to list all registered faults."""
+
+    command: Literal["list"] = "list"
+
+
+class FaultInfo(BaseModel):
+    """Status of a single fault, as returned by the server."""
+
+    id: str
+    mode: str
+    active: bool
+    activations: int = 0
+    ticks_elapsed: int = 0
+    config: dict[str, Any] = {}
+
+
+class ControlResponse(BaseModel):
+    """Generic control channel response (covers all command types)."""
+
+    success: bool
+    command: str | None = None
+    fault_id: str | None = None
+    error: str | None = None
+    status: FaultInfo | None = None
+    faults: list[FaultInfo] | None = None
