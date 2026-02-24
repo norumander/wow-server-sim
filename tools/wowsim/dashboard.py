@@ -248,6 +248,7 @@ try:
             ("a", "activate_fault", "Activate"),
             ("d", "deactivate_fault", "Deactivate"),
             ("x", "deactivate_all", "Deact All"),
+            ("p", "run_pipeline", "Pipeline"),
         ]
 
         def __init__(self, config: DashboardConfig) -> None:
@@ -490,6 +491,48 @@ try:
                 self.notify(f"Error: {exc}", severity="error")
 
             self._trigger_refresh()
+
+        def action_run_pipeline(self) -> None:
+            """Run canary deploy pipeline via thread worker (key: p)."""
+            # Find first active fault or default to latency-spike
+            fault_id = "latency-spike"
+            for f in self._fault_list:
+                if f.active:
+                    fault_id = f.id
+                    break
+            self.notify(f"Running pipeline for {fault_id}...")
+            self._do_run_pipeline(fault_id)
+
+        @work(thread=True)
+        def _do_run_pipeline(self, fault_id: str) -> None:
+            """Run pipeline in a worker thread."""
+            from wowsim.models import PipelineConfig
+            from wowsim.pipeline import format_stage_result, run_pipeline
+
+            config = PipelineConfig(
+                fault_id=fault_id,
+                action="deactivate",
+                control_host=self._config.host,
+                control_port=self._config.control_port,
+                game_host=self._config.host,
+                game_port=self._config.port,
+                log_file=str(self._config.log_file),
+                canary_duration_seconds=6.0,
+                canary_poll_interval_seconds=2.0,
+            )
+            result = run_pipeline(config)
+
+            def _log_results() -> None:
+                log = self.query_one("#event-log", RichLog)
+                log.write(f"--- Pipeline: {result.outcome.upper()} ---")
+                for stage in result.stages:
+                    log.write(format_stage_result(stage))
+                self._pipeline_ran = True
+                self._update_suggestion()
+                self.notify(f"Pipeline: {result.outcome}")
+
+            self.call_from_thread(_log_results)
+            self.call_from_thread(self._trigger_refresh)
 
 except ImportError:
     pass
