@@ -1,7 +1,5 @@
 #include "server/events/spellcast.h"
 
-#include <string>
-
 #include "server/telemetry/logger.h"
 
 namespace wow {
