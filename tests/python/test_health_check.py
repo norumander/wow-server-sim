@@ -318,3 +318,107 @@ class TestCheckServerReachableFailure:
 
     def test_unreachable(self) -> None:
         assert check_server_reachable("127.0.0.1", 1, timeout=0.5) is False
+
+
+# ============================================================
+# Group F: Report Building & Formatting (2 tests)
+# ============================================================
+
+from wowsim.health_check import build_health_report, format_health_report
+
+
+class TestBuildHealthReportFromLog:
+    """build_health_report with sample log file produces complete report."""
+
+    def test_complete_report(self, health_log_file: Path) -> None:
+        report = build_health_report(
+            log_path=health_log_file,
+            game_host="127.0.0.1",
+            game_port=1,  # unreachable, intentionally
+            skip_faults=True,
+        )
+        assert isinstance(report, HealthReport)
+        assert report.server_reachable is False
+        assert report.tick is not None
+        assert report.tick.total_ticks == 5
+        assert len(report.zones) == 2
+        assert report.connected_players == 1
+        assert report.error_count >= 1
+        assert report.status in ("healthy", "degraded", "critical")
+
+
+class TestFormatHealthReportText:
+    """Formatted output contains key sections."""
+
+    def test_format_contains_sections(self) -> None:
+        report = HealthReport(
+            timestamp=datetime(2026, 2, 24, 10, 30, 0, tzinfo=timezone.utc),
+            status="healthy",
+            server_reachable=True,
+            tick=TickHealth(
+                total_ticks=1000, avg_duration_ms=3.5, max_duration_ms=12.0,
+                min_duration_ms=2.1, overrun_count=2, overrun_pct=0.2,
+            ),
+            zones=[
+                ZoneHealthSummary(
+                    zone_id=1, state="ACTIVE", tick_count=100,
+                    error_count=0, avg_tick_duration_ms=3.2,
+                ),
+            ],
+            connected_players=5,
+        )
+        text = format_health_report(report)
+        assert "HEALTHY" in text
+        assert "reachable" in text
+        assert "Tick Rate" in text
+        assert "1000" in text
+        assert "Zone 1" in text
+        assert "ACTIVE" in text
+        assert "Connected Players: 5" in text
+        assert "Active Faults: none" in text
+        assert "Anomalies: none" in text
+
+
+# ============================================================
+# Group G: CLI Integration (2 tests)
+# ============================================================
+
+
+class TestCLIHealthWithLogFile:
+    """CLI health command with valid log file exits 0 and shows status."""
+
+    def test_cli_health(self, health_log_file: Path) -> None:
+        from click.testing import CliRunner
+
+        from wowsim.cli import main
+
+        runner = CliRunner()
+        result = runner.invoke(
+            main,
+            [
+                "health",
+                "--log-file", str(health_log_file),
+                "--host", "127.0.0.1",
+                "--port", "1",
+                "--no-faults",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        assert "Status:" in result.output or "status" in result.output.lower()
+
+
+class TestCLIHealthMissingLogFile:
+    """CLI health with nonexistent log file shows error."""
+
+    def test_missing_log_file(self, tmp_path: Path) -> None:
+        from click.testing import CliRunner
+
+        from wowsim.cli import main
+
+        bad_path = tmp_path / "nonexistent.jsonl"
+        runner = CliRunner()
+        result = runner.invoke(
+            main,
+            ["health", "--log-file", str(bad_path), "--no-faults"],
+        )
+        assert result.exit_code != 0
