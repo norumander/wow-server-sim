@@ -110,3 +110,160 @@ class TestPipelineModelsJsonRoundTrip:
         assert restored.stages[1].stage == "validate"
         assert restored.config.fault_id == "latency-spike"
         assert restored.total_duration_seconds == 1.5
+
+
+# ============================================================
+# Group B: Build Preconditions (3 tests)
+# ============================================================
+
+
+class TestBuildPassesHealthy:
+    """Build stage passes when server is reachable and healthy."""
+
+    def test_passes_healthy(self) -> None:
+        from wowsim.pipeline import check_build_preconditions
+
+        result = check_build_preconditions(reachable=True, status="healthy")
+        assert result.stage == "build"
+        assert result.passed is True
+        assert result.health_status == "healthy"
+
+
+class TestBuildFailsUnreachable:
+    """Build stage fails when server is unreachable."""
+
+    def test_fails_unreachable(self) -> None:
+        from wowsim.pipeline import check_build_preconditions
+
+        result = check_build_preconditions(reachable=False, status="healthy")
+        assert result.stage == "build"
+        assert result.passed is False
+        assert "unreachable" in result.message.lower()
+
+
+class TestBuildFailsCritical:
+    """Build stage fails when server status is critical."""
+
+    def test_fails_critical(self) -> None:
+        from wowsim.pipeline import check_build_preconditions
+
+        result = check_build_preconditions(reachable=True, status="critical")
+        assert result.stage == "build"
+        assert result.passed is False
+        assert "critical" in result.message.lower()
+
+
+# ============================================================
+# Group C: Validate Gate (2 tests)
+# ============================================================
+
+
+class TestValidatePassesReachable:
+    """Validate stage passes when server is reachable."""
+
+    def test_passes(self) -> None:
+        from wowsim.pipeline import check_validate_gate
+
+        from wowsim.models import HealthReport
+        from datetime import datetime, timezone
+
+        report = HealthReport(
+            timestamp=datetime(2026, 2, 24, tzinfo=timezone.utc),
+            status="healthy",
+            server_reachable=True,
+        )
+        result = check_validate_gate(report)
+        assert result.stage == "validate"
+        assert result.passed is True
+        assert result.health_status == "healthy"
+
+
+class TestValidateFailsUnreachable:
+    """Validate stage fails when server is unreachable."""
+
+    def test_fails(self) -> None:
+        from wowsim.pipeline import check_validate_gate
+
+        from wowsim.models import HealthReport
+        from datetime import datetime, timezone
+
+        report = HealthReport(
+            timestamp=datetime(2026, 2, 24, tzinfo=timezone.utc),
+            status="healthy",
+            server_reachable=False,
+        )
+        result = check_validate_gate(report)
+        assert result.stage == "validate"
+        assert result.passed is False
+        assert "unreachable" in result.message.lower()
+
+
+# ============================================================
+# Group D: Canary Evaluation (3 tests)
+# ============================================================
+
+
+class TestCanaryPassesAllHealthy:
+    """Canary passes when all health samples are below threshold."""
+
+    def test_passes(self) -> None:
+        from wowsim.pipeline import evaluate_canary_health
+
+        samples = ["healthy", "healthy", "degraded", "healthy"]
+        passed, message = evaluate_canary_health(samples, threshold="critical")
+        assert passed is True
+
+
+class TestCanaryFailsOnCritical:
+    """Canary fails on first critical sample when threshold is critical."""
+
+    def test_fails_critical(self) -> None:
+        from wowsim.pipeline import evaluate_canary_health
+
+        samples = ["healthy", "critical", "healthy"]
+        passed, message = evaluate_canary_health(samples, threshold="critical")
+        assert passed is False
+        assert "critical" in message.lower()
+
+
+class TestCanaryFailsOnDegradedThreshold:
+    """Canary fails on degraded sample when threshold is degraded."""
+
+    def test_fails_degraded(self) -> None:
+        from wowsim.pipeline import evaluate_canary_health
+
+        samples = ["healthy", "degraded", "healthy"]
+        passed, message = evaluate_canary_health(samples, threshold="degraded")
+        assert passed is False
+        assert "degraded" in message.lower()
+
+
+# ============================================================
+# Group E: Rollback Action (2 tests)
+# ============================================================
+
+
+class TestRollbackReversesActivate:
+    """Rollback of 'activate' returns 'deactivate'."""
+
+    def test_reverse_activate(self) -> None:
+        from wowsim.pipeline import determine_rollback_action
+        from wowsim.models import PipelineConfig
+
+        config = PipelineConfig(fault_id="latency-spike", action="activate")
+        action, fault_id = determine_rollback_action(config)
+        assert action == "deactivate"
+        assert fault_id == "latency-spike"
+
+
+class TestRollbackReversesDeactivate:
+    """Rollback of 'deactivate' returns 'activate'."""
+
+    def test_reverse_deactivate(self) -> None:
+        from wowsim.pipeline import determine_rollback_action
+        from wowsim.models import PipelineConfig
+
+        config = PipelineConfig(fault_id="memory-pressure", action="deactivate")
+        action, fault_id = determine_rollback_action(config)
+        assert action == "activate"
+        assert fault_id == "memory-pressure"
