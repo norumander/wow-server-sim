@@ -41,14 +41,25 @@ bool CommandQueue::empty() const
 // Helpers
 // ---------------------------------------------------------------------------
 
-std::string fault_mode_to_string(FaultMode /*mode*/)
+std::string fault_mode_to_string(FaultMode mode)
 {
-    return "";
+    switch (mode) {
+        case FaultMode::TICK_SCOPED: return "tick_scoped";
+        case FaultMode::AMBIENT:     return "ambient";
+        default:                     return "unknown";
+    }
 }
 
-nlohmann::json fault_status_to_json(const FaultStatus& /*status*/)
+nlohmann::json fault_status_to_json(const FaultStatus& status)
 {
-    return {};
+    return nlohmann::json{
+        {"id", status.id},
+        {"mode", fault_mode_to_string(status.mode)},
+        {"active", status.active},
+        {"activations", status.activations},
+        {"ticks_elapsed", status.ticks_elapsed},
+        {"config", status.config}
+    };
 }
 
 // ---------------------------------------------------------------------------
@@ -159,6 +170,13 @@ size_t ControlChannel::client_count() const
 
 void ControlChannel::process_pending_commands()
 {
+    auto commands = command_queue_.drain();
+    for (auto& cmd : commands) {
+        auto response = execute_command(cmd.request);
+        if (cmd.on_complete) {
+            cmd.on_complete(std::move(response));
+        }
+    }
 }
 
 void ControlChannel::do_accept()
@@ -233,40 +251,183 @@ void ControlChannel::do_read_line(std::shared_ptr<asio::ip::tcp::socket> socket,
                 line.pop_back();
             }
 
-            // For now, just discard the line — command dispatch comes in commit 6.
+            // Parse JSON and push command to queue with response callback.
+            try {
+                auto request = nlohmann::json::parse(line);
+
+                // Capture socket and io_context for response write-back.
+                // on_complete posts the response write to the network thread.
+                auto& ctx = io_context_;
+                command_queue_.push({
+                    std::move(request),
+                    [socket, &ctx](nlohmann::json response) {
+                        std::string response_line = response.dump() + "\n";
+                        auto response_buf = std::make_shared<std::string>(std::move(response_line));
+                        asio::post(ctx, [socket, response_buf]() {
+                            asio::error_code write_ec;
+                            asio::write(*socket, asio::buffer(*response_buf), write_ec);
+                        });
+                    }
+                });
+            } catch (const nlohmann::json::parse_error& e) {
+                // JSON parse error — respond directly on network thread (no queue round-trip).
+                nlohmann::json error_response = {
+                    {"success", false},
+                    {"error", std::string("Invalid JSON: ") + e.what()}
+                };
+                std::string error_line = error_response.dump() + "\n";
+                auto error_buf = std::make_shared<std::string>(std::move(error_line));
+                asio::error_code write_ec;
+                asio::write(*socket, asio::buffer(*error_buf), write_ec);
+            }
+
             // Continue reading.
             do_read_line(socket, buffer);
         });
 }
 
-nlohmann::json ControlChannel::execute_command(const nlohmann::json& /*request*/)
+nlohmann::json ControlChannel::execute_command(const nlohmann::json& request)
 {
-    return {};
+    // Validate required 'command' field.
+    if (!request.contains("command") || !request["command"].is_string()) {
+        return {
+            {"success", false},
+            {"error", "Missing required field: command"}
+        };
+    }
+
+    std::string command = request["command"].get<std::string>();
+
+    if (command == "activate") {
+        return handle_activate(request);
+    } else if (command == "deactivate") {
+        return handle_deactivate(request);
+    } else if (command == "deactivate_all") {
+        return handle_deactivate_all(request);
+    } else if (command == "status") {
+        return handle_status(request);
+    } else if (command == "list") {
+        return handle_list(request);
+    }
+
+    return {
+        {"success", false},
+        {"error", "Unknown command: " + command}
+    };
 }
 
-nlohmann::json ControlChannel::handle_activate(const nlohmann::json& /*request*/)
+nlohmann::json ControlChannel::handle_activate(const nlohmann::json& request)
 {
-    return {};
+    if (!request.contains("fault_id") || !request["fault_id"].is_string()) {
+        return {
+            {"success", false},
+            {"error", "Missing required field: fault_id"}
+        };
+    }
+
+    std::string fault_id = request["fault_id"].get<std::string>();
+
+    FaultConfig config;
+    if (request.contains("params")) {
+        config.params = request["params"];
+    }
+    if (request.contains("target_zone_id")) {
+        config.target_zone_id = request["target_zone_id"].get<uint32_t>();
+    }
+    if (request.contains("duration_ticks")) {
+        config.duration_ticks = request["duration_ticks"].get<uint64_t>();
+    }
+
+    bool success = registry_.activate(fault_id, config);
+    if (!success) {
+        return {
+            {"success", false},
+            {"error", "Failed to activate fault: " + fault_id}
+        };
+    }
+
+    return {
+        {"success", true},
+        {"command", "activate"},
+        {"fault_id", fault_id}
+    };
 }
 
-nlohmann::json ControlChannel::handle_deactivate(const nlohmann::json& /*request*/)
+nlohmann::json ControlChannel::handle_deactivate(const nlohmann::json& request)
 {
-    return {};
+    if (!request.contains("fault_id") || !request["fault_id"].is_string()) {
+        return {
+            {"success", false},
+            {"error", "Missing required field: fault_id"}
+        };
+    }
+
+    std::string fault_id = request["fault_id"].get<std::string>();
+
+    bool success = registry_.deactivate(fault_id);
+    if (!success) {
+        return {
+            {"success", false},
+            {"error", "Failed to deactivate fault: " + fault_id}
+        };
+    }
+
+    return {
+        {"success", true},
+        {"command", "deactivate"},
+        {"fault_id", fault_id}
+    };
 }
 
 nlohmann::json ControlChannel::handle_deactivate_all(const nlohmann::json& /*request*/)
 {
-    return {};
+    registry_.deactivate_all();
+    return {
+        {"success", true},
+        {"command", "deactivate_all"}
+    };
 }
 
-nlohmann::json ControlChannel::handle_status(const nlohmann::json& /*request*/)
+nlohmann::json ControlChannel::handle_status(const nlohmann::json& request)
 {
-    return {};
+    if (!request.contains("fault_id") || !request["fault_id"].is_string()) {
+        return {
+            {"success", false},
+            {"error", "Missing required field: fault_id"}
+        };
+    }
+
+    std::string fault_id = request["fault_id"].get<std::string>();
+
+    auto status = registry_.fault_status(fault_id);
+    if (!status.has_value()) {
+        return {
+            {"success", false},
+            {"error", "Unknown fault: " + fault_id}
+        };
+    }
+
+    return {
+        {"success", true},
+        {"command", "status"},
+        {"fault_id", fault_id},
+        {"status", fault_status_to_json(status.value())}
+    };
 }
 
 nlohmann::json ControlChannel::handle_list(const nlohmann::json& /*request*/)
 {
-    return {};
+    auto all = registry_.all_status();
+    nlohmann::json faults = nlohmann::json::array();
+    for (const auto& s : all) {
+        faults.push_back(fault_status_to_json(s));
+    }
+
+    return {
+        {"success", true},
+        {"command", "list"},
+        {"faults", faults}
+    };
 }
 
 }  // namespace wow
