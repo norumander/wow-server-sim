@@ -151,3 +151,38 @@ class HealthReport(BaseModel):
     active_faults: list[FaultInfo] = []
     error_count: int = 0
     uptime_ticks: int = 0
+
+
+# ---------------------------------------------------------------------------
+# Mock Client Models
+# ---------------------------------------------------------------------------
+
+
+class ClientConfig(BaseModel):
+    """Configuration for a single mock game client."""
+
+    host: str = "localhost"
+    port: int = 8080
+    actions_per_second: float = 2.0
+    duration_seconds: float = 10.0
+
+
+class ClientResult(BaseModel):
+    """Outcome of a single mock client's session."""
+
+    client_id: int
+    connected: bool
+    actions_sent: int
+    duration_seconds: float
+    error: str | None = None
+
+
+class SpawnResult(BaseModel):
+    """Aggregate result from spawning multiple mock clients."""
+
+    total_clients: int
+    successful_connections: int
+    failed_connections: int
+    total_actions_sent: int
+    total_duration_seconds: float
+    clients: list[ClientResult]
