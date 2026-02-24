@@ -10,6 +10,7 @@
 #include <asio.hpp>
 
 #include "server/connection.h"
+#include "server/session_event_queue.h"
 
 namespace wow {
 
@@ -46,6 +47,10 @@ public:
     /// Return the current number of active connections.
     size_t connection_count() const;
 
+    /// Set the session event queue for connect/disconnect notifications.
+    /// The queue is not owned — caller must ensure it outlives the server.
+    void set_session_event_queue(SessionEventQueue* queue);
+
     // Non-copyable, non-movable.
     GameServer(const GameServer&) = delete;
     GameServer& operator=(const GameServer&) = delete;
@@ -66,6 +71,7 @@ private:
     std::mutex connections_mutex_;
     std::unordered_map<uint64_t, std::shared_ptr<Connection>> connections_;
     std::atomic<size_t> connection_count_{0};
+    SessionEventQueue* session_event_queue_ = nullptr;
 };
 
 }  // namespace wow

@@ -103,6 +103,11 @@ size_t GameServer::connection_count() const
     return connection_count_.load();
 }
 
+void GameServer::set_session_event_queue(SessionEventQueue* queue)
+{
+    session_event_queue_ = queue;
+}
+
 void GameServer::do_accept()
 {
     acceptor_.async_accept(
@@ -125,6 +130,10 @@ void GameServer::do_accept()
                 connection_count_.store(connections_.size());
             }
 
+            if (session_event_queue_) {
+                session_event_queue_->push({SessionEventType::CONNECTED, sid});
+            }
+
             if (Logger::is_initialized()) {
                 Logger::instance().event("game_server", "Connection accepted", {
                     {"session_id", sid},
@@ -143,9 +152,15 @@ void GameServer::do_accept()
 
 void GameServer::on_disconnect(uint64_t session_id)
 {
-    std::lock_guard<std::mutex> lock(connections_mutex_);
-    connections_.erase(session_id);
-    connection_count_.store(connections_.size());
+    {
+        std::lock_guard<std::mutex> lock(connections_mutex_);
+        connections_.erase(session_id);
+        connection_count_.store(connections_.size());
+    }
+
+    if (session_event_queue_) {
+        session_event_queue_->push({SessionEventType::DISCONNECTED, session_id});
+    }
 }
 
 }  // namespace wow
