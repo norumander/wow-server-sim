@@ -186,7 +186,7 @@ def build_health_report(
     skip_faults: bool = False,
 ) -> HealthReport:
     """Build a complete health report from log file + server check + fault query."""
-    reachable = check_server_reachable(game_host, game_port)
+    reachable = check_server_reachable(control_host, control_port)
 
     entries: list[TelemetryEntry] = []
     if log_path is not None:

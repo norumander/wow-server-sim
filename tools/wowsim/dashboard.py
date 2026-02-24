@@ -208,7 +208,7 @@ try:
             anomalies = detect_anomalies(entries)
             status = determine_status(tick, zones, anomalies)
             reachable = check_server_reachable(
-                self._config.host, self._config.port, timeout=1.0
+                self._config.host, self._config.control_port, timeout=1.0
             )
             uptime = tick.total_ticks if tick else 0
 

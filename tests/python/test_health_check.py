@@ -334,7 +334,9 @@ class TestBuildHealthReportFromLog:
         report = build_health_report(
             log_path=health_log_file,
             game_host="127.0.0.1",
-            game_port=1,  # unreachable, intentionally
+            game_port=1,
+            control_host="127.0.0.1",
+            control_port=1,  # unreachable, intentionally
             skip_faults=True,
         )
         assert isinstance(report, HealthReport)
