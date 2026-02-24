@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # ---- C++ build & test via Docker ----
+      - name: Build Docker image (compiles C++ server)
+        run: docker build -t wow-server-sim .
+
+      - name: Run C++ tests
+        run: |
+          docker build --target builder -t wow-server-sim-builder .
+          docker run --rm wow-server-sim-builder sh -c "cd out && ctest --output-on-failure"
+
+      # ---- Python tooling ----
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Python tooling
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e tools/[dev]
+
+      - name: Lint (ruff)
+        run: ruff check tools/
+
+      - name: Format check (black)
+        run: black --check tools/
+
+      - name: Python tests
+        run: python -m pytest tests/python/ -v

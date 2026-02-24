@@ -1,0 +1,10 @@
+services:
+  server:
+    build: .
+    ports:
+      - "8080:8080"   # Game traffic (TCP)
+      - "8081:8081"   # Control channel (TCP)
+      - "9090:9090/udp" # Telemetry broadcast (UDP)
+    volumes:
+      - ./logs:/app/logs
+    restart: unless-stopped
