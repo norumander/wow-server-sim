@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import socket
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from wowsim.log_parser import detect_anomalies, parse_line
@@ -21,7 +21,6 @@ from wowsim.models import (
     TickHealth,
     ZoneHealthSummary,
 )
-
 
 # ---------------------------------------------------------------------------
 # Core computation (pure functions on TelemetryEntry lists)
@@ -214,7 +213,7 @@ def build_health_report(
     status = determine_status(tick, zones, anomalies)
 
     return HealthReport(
-        timestamp=datetime.now(timezone.utc),
+        timestamp=datetime.now(UTC),
         status=status,
         server_reachable=reachable,
         tick=tick,
@@ -249,7 +248,10 @@ def format_health_report(report: HealthReport) -> str:
         lines.append("Tick Rate:")
         lines.append(f"  Total ticks:    {t.total_ticks}")
         lines.append(f"  Avg duration:   {t.avg_duration_ms:.1f}ms")
-        lines.append(f"  Max:            {t.max_duration_ms:.1f}ms  Min: {t.min_duration_ms:.1f}ms")
+        lines.append(
+            f"  Max:            {t.max_duration_ms:.1f}ms"
+            f"  Min: {t.min_duration_ms:.1f}ms"
+        )
         lines.append(f"  Overruns:       {t.overrun_count} ({t.overrun_pct:.1f}%)")
         lines.append("")
 

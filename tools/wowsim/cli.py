@@ -31,9 +31,64 @@ def main() -> None:
 
 
 @main.command()
-def health() -> None:
+@click.option(
+    "--log-file",
+    required=True,
+    type=click.Path(exists=True),
+    help="Path to JSONL telemetry log file.",
+)
+@click.option("--host", default="localhost", help="Game server host.")
+@click.option("--port", default=8080, type=int, help="Game server port.")
+@click.option("--control-port", default=8081, type=int, help="Control channel port.")
+@click.option("--watch", is_flag=True, help="Continuous monitoring mode.")
+@click.option(
+    "--interval", default=2, type=int, help="Watch refresh interval (seconds)."
+)
+@click.option(
+    "--format",
+    "output_format",
+    type=click.Choice(["text", "json"]),
+    default="text",
+    help="Output format.",
+)
+@click.option("--no-faults", is_flag=True, help="Skip control channel fault query.")
+def health(
+    log_file: str,
+    host: str,
+    port: int,
+    control_port: int,
+    watch: bool,
+    interval: int,
+    output_format: str,
+    no_faults: bool,
+) -> None:
     """Check server health status."""
-    click.echo("health: not yet implemented")
+    import time
+
+    from wowsim.health_check import build_health_report, format_health_report
+
+    log_path = Path(log_file)
+
+    while True:
+        report = build_health_report(
+            log_path=log_path,
+            game_host=host,
+            game_port=port,
+            control_host=host,
+            control_port=control_port,
+            skip_faults=no_faults,
+        )
+
+        if output_format == "json":
+            click.echo(report.model_dump_json(indent=2))
+        else:
+            click.echo(format_health_report(report))
+
+        if not watch:
+            break
+
+        time.sleep(interval)
+        click.clear()
 
 
 @main.group("inject-fault")
