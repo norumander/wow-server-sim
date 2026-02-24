@@ -233,8 +233,22 @@ AUTHENTICATING + DISCONNECT           → DISCONNECTING
 
 ### Python Tooling (`wowsim` CLI)
 - **Package:** Installable via `pip install -e tools/`, provides `wowsim` command
-- **Shared modules:** `protocol.py`, `telemetry.py`, `models.py`, `config.py`
+- **Shared models:** `wowsim.models` — Pydantic v2 models for telemetry entries, summaries, anomalies (ADR-018)
 - **Async strategy:** Async core, sync CLI surface via `asyncio.run()`
+
+### Log Parser (`wowsim/log_parser.py`)
+- **Responsibility:** Parse JSONL telemetry files, filter/summarize entries, detect anomalies
+- **Parsing:** `parse_line()` validates individual JSON lines into `TelemetryEntry` via Pydantic. `parse_file()` and `parse_stream()` handle bulk input, silently skipping malformed lines
+- **Filtering:** `filter_entries()` supports composable type, component, and message substring filters
+- **Summary:** `summarize()` computes entry counts by type/component, error count, time range, and duration
+- **Anomaly detection:** `detect_anomalies()` runs four detectors with configurable thresholds:
+  - `_detect_latency_spikes` — game_loop tick metrics with `duration_ms` exceeding warn (60ms) or critical (100ms) thresholds
+  - `_detect_zone_crashes` — zone error entries with "Zone tick exception" message
+  - `_detect_error_bursts` — sliding window counting errors within configurable time window (default: 5+ in 10s)
+  - `_detect_unexpected_disconnects` — game_server "Client disconnected" events
+- **CLI:** `wowsim parse-logs <FILE>` with `--type`, `--component`, `--message`, `--anomalies`, and `--format json|text` options
+- **Output:** Human-readable summary/anomaly tables (default), or structured JSON via `ParseResult.model_dump_json()`
+- **Test strategy:** 20 pytest cases in 6 groups: model parsing (3), file/stream parsing (3), filtering (4), summary (3), anomaly detection (5), CLI integration (2)
 
 ## Concurrency Model
 

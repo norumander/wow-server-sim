@@ -314,3 +314,25 @@ Tick ordering: `control.process_pending_commands()` → `registry.on_tick(tick)`
 - Response latency is bounded by tick interval (~50ms at 20 Hz) — acceptable for operator commands
 - `asio::post()` for response write-back ensures socket operations stay on the correct thread
 - Command execution is deterministic — processed in FIFO order at a known point in the tick cycle
+
+---
+
+## ADR-018: Python Module Organization — wowsim Package with Pydantic Models
+
+**Date:** 2026-02-23
+**Status:** Accepted
+
+**Context:** The Python tooling needs shared data models (telemetry entries, anomalies, summaries) that are reusable across the CLI, log parser, future health checker, fault trigger, and mock client. CLAUDE.md shows flat files in `tools/` (e.g., `tools/log_parser.py`) but the actual package structure uses `tools/wowsim/`. Need a clear organization that makes modules importable by all tools and tests.
+
+**Decision:**
+1. **Package structure:** All importable code lives inside `tools/wowsim/` (not flat in `tools/`). CLI entry point at `wowsim.cli`, shared models at `wowsim.models`, tool modules at `wowsim.<tool>`.
+2. **Pydantic v2 models** for all data structures: `TelemetryEntry` (validated from JSON Lines), `LogSummary`, `Anomaly`, `ParseResult`. Pydantic provides JSON parsing, validation, and serialization — eliminating hand-written parsing code.
+3. **Shared conftest.py** at `tests/python/conftest.py` provides fixtures (sample JSONL lines, temp log files, anomaly entries) reusable by all future test modules.
+4. **Literal types** for constrained fields: `TelemetryEntry.type` is `Literal["metric", "event", "health", "error"]`, catching invalid telemetry at parse time.
+
+**Consequences:**
+- All Python tools share validated models — no ad-hoc dict parsing in individual tools
+- Pydantic's `model_validate()` gives clear error messages for malformed telemetry
+- `ParseResult.model_dump_json()` provides free JSON output for `--format json` CLI flag
+- Test fixtures in conftest.py are shared across test modules, reducing duplication
+- Future tools (health check, fault trigger, mock client) import from `wowsim.models` directly

@@ -7,6 +7,11 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- Python log parser (`wowsim.log_parser`): parses JSONL telemetry files, filters by type/component/message, computes summaries (counts, time range, duration), and detects anomalies (latency spikes, zone crashes, error bursts, unexpected disconnects) with configurable thresholds
+- Pydantic v2 models (`wowsim.models`): `TelemetryEntry`, `LogSummary`, `Anomaly`, `ParseResult` — shared data models for all Python tools (ADR-018)
+- `parse-logs` CLI command: `wowsim parse-logs <FILE>` with `--type`, `--component`, `--message` filters, `--anomalies` flag, and `--format json|text` output. Supports stdin via `-`
+- Shared test fixtures (`tests/python/conftest.py`): sample JSONL lines, temp log files, anomaly entries — reusable by future Python test modules
+- 20 pytest cases for log parser covering model parsing, file/stream parsing, filtering, summary, anomaly detection, and CLI integration
 - Control channel (`wow::ControlChannel`): separate TCP server for runtime fault injection commands. Newline-delimited JSON protocol with activate, deactivate, deactivate_all, status, and list commands. Thread-safe command queue (ADR-017) bridges network and game threads — FaultRegistry only touched by game thread
 - `wow::CommandQueue`: thread-safe producer/consumer queue mirroring EventQueue pattern (mutex + swap drain). Network thread pushes parsed commands; game thread drains at tick start via `process_pending_commands()`
 - Control channel protocol helpers: `fault_mode_to_string()` and `fault_status_to_json()` for JSON serialization of fault status
