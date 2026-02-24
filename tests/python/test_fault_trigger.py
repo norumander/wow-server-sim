@@ -86,7 +86,17 @@ class TestControlResponseParsesError:
 # ---------------------------------------------------------------------------
 
 
-from wowsim.fault_trigger import TICKS_PER_SECOND, parse_duration
+from wowsim.fault_trigger import (
+    TICKS_PER_SECOND,
+    ControlClient,
+    ControlClientError,
+    activate_fault,
+    deactivate_all_faults,
+    deactivate_fault,
+    fault_status,
+    list_all_faults,
+    parse_duration,
+)
 
 
 class TestParseDurationSeconds:
@@ -118,3 +128,123 @@ class TestParseDurationTicksAndInvalid:
             parse_duration("abc")
         with pytest.raises(ValueError):
             parse_duration("")
+
+
+# ---------------------------------------------------------------------------
+# Group C: Client commands via sync wrappers
+# ---------------------------------------------------------------------------
+
+
+class TestActivateSendsCorrectJson:
+    """activate_fault() sends correct JSON and returns ControlResponse."""
+
+    def test_activate_request_format(self, mock_control_server: dict) -> None:
+        host = mock_control_server["host"]
+        port = mock_control_server["port"]
+        resp = activate_fault(
+            host,
+            port,
+            "latency-spike",
+            params={"delay_ms": 300},
+            duration_ticks=100,
+            target_zone_id=1,
+        )
+        assert resp.success is True
+        assert resp.fault_id == "latency-spike"
+
+        received = mock_control_server["received"]
+        assert len(received) == 1
+        req = received[0]
+        assert req["command"] == "activate"
+        assert req["fault_id"] == "latency-spike"
+        assert req["params"] == {"delay_ms": 300}
+        assert req["duration_ticks"] == 100
+        assert req["target_zone_id"] == 1
+
+
+class TestDeactivateSendsCorrectJson:
+    """deactivate_fault() sends correct JSON wire format."""
+
+    def test_deactivate_request_format(self, mock_control_server: dict) -> None:
+        host = mock_control_server["host"]
+        port = mock_control_server["port"]
+        resp = deactivate_fault(host, port, "latency-spike")
+        assert resp.success is True
+
+        received = mock_control_server["received"]
+        assert len(received) == 1
+        req = received[0]
+        assert req["command"] == "deactivate"
+        assert req["fault_id"] == "latency-spike"
+
+
+class TestStatusReturnsFaultInfo:
+    """fault_status() returns response with .status containing FaultInfo."""
+
+    def test_status_has_fault_info(self, mock_control_server: dict) -> None:
+        host = mock_control_server["host"]
+        port = mock_control_server["port"]
+        resp = fault_status(host, port, "latency-spike")
+        assert resp.success is True
+        assert resp.status is not None
+        assert resp.status.id == "latency-spike"
+        assert resp.status.mode == "tick_scoped"
+        assert resp.status.active is True
+        assert resp.status.activations == 1
+
+
+class TestListReturnsFaultList:
+    """list_all_faults() returns response with .faults list."""
+
+    def test_list_has_all_faults(self, mock_control_server: dict) -> None:
+        host = mock_control_server["host"]
+        port = mock_control_server["port"]
+        resp = list_all_faults(host, port)
+        assert resp.success is True
+        assert resp.faults is not None
+        assert len(resp.faults) == 4
+        fault_ids = [f.id for f in resp.faults]
+        assert "latency-spike" in fault_ids
+        assert "memory-pressure" in fault_ids
+
+
+# ---------------------------------------------------------------------------
+# Group D: Error handling
+# ---------------------------------------------------------------------------
+
+
+class TestServerErrorRaisesClientError:
+    """Mock returning success=false raises ControlClientError."""
+
+    def test_error_response(self, mock_control_server: dict) -> None:
+        host = mock_control_server["host"]
+        port = mock_control_server["port"]
+        mock_control_server["responses"]["activate"] = {
+            "success": False,
+            "error": "Unknown fault: bad-id",
+        }
+        with pytest.raises(ControlClientError, match="Unknown fault"):
+            activate_fault(host, port, "bad-id")
+
+
+class TestConnectionRefusedRaises:
+    """Connecting to a closed port raises OSError."""
+
+    def test_connection_refused(self) -> None:
+        with pytest.raises(OSError):
+            activate_fault("127.0.0.1", 1, "latency-spike")
+
+
+class TestNotConnectedRaises:
+    """Calling a command before connect() raises ControlClientError."""
+
+    def test_not_connected(self) -> None:
+        import asyncio
+
+        async def _test() -> None:
+            client = ControlClient("127.0.0.1", 9999)
+            # Do not connect — should raise on command.
+            with pytest.raises(ControlClientError, match="Not connected"):
+                await client.activate("latency-spike")
+
+        asyncio.run(_test())

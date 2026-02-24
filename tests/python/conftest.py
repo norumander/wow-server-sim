@@ -1,6 +1,8 @@
 """Shared fixtures for wowsim Python tests."""
 
 import json
+import socketserver
+import threading
 from datetime import datetime, timezone
 
 import pytest
@@ -178,3 +180,115 @@ def entries_with_anomalies() -> list[str]:
     )
 
     return lines
+
+
+# --- Mock TCP control channel server ---
+
+# Default canned responses keyed by command type.
+_DEFAULT_CONTROL_RESPONSES: dict[str, dict] = {
+    "activate": {
+        "success": True,
+        "command": "activate",
+        "fault_id": "latency-spike",
+    },
+    "deactivate": {
+        "success": True,
+        "command": "deactivate",
+        "fault_id": "latency-spike",
+    },
+    "deactivate_all": {
+        "success": True,
+        "command": "deactivate_all",
+    },
+    "status": {
+        "success": True,
+        "command": "status",
+        "fault_id": "latency-spike",
+        "status": {
+            "id": "latency-spike",
+            "mode": "tick_scoped",
+            "active": True,
+            "activations": 1,
+            "ticks_elapsed": 42,
+            "config": {"delay_ms": 200},
+        },
+    },
+    "list": {
+        "success": True,
+        "command": "list",
+        "faults": [
+            {"id": "latency-spike", "mode": "tick_scoped", "active": False},
+            {"id": "session-crash", "mode": "tick_scoped", "active": False},
+            {"id": "event-queue-flood", "mode": "tick_scoped", "active": False},
+            {"id": "memory-pressure", "mode": "ambient", "active": False},
+        ],
+    },
+}
+
+
+class _MockControlHandler(socketserver.StreamRequestHandler):
+    """Handles one control channel client connection."""
+
+    def handle(self) -> None:
+        for raw_line in self.rfile:
+            line = raw_line.decode().strip()
+            if not line:
+                continue
+            try:
+                request = json.loads(line)
+            except json.JSONDecodeError:
+                resp = {"success": False, "error": "Invalid JSON"}
+                self.wfile.write((json.dumps(resp) + "\n").encode())
+                continue
+
+            self.server.received.append(request)  # type: ignore[attr-defined]
+
+            cmd = request.get("command", "")
+            responses = self.server.responses  # type: ignore[attr-defined]
+            if cmd in responses:
+                resp = dict(responses[cmd])
+                # Echo back fault_id from request when present.
+                if "fault_id" in request and "fault_id" in resp:
+                    resp["fault_id"] = request["fault_id"]
+            else:
+                resp = {"success": False, "error": f"Unknown command: {cmd}"}
+
+            self.wfile.write((json.dumps(resp) + "\n").encode())
+            self.wfile.flush()
+
+
+class _MockControlServer(socketserver.TCPServer):
+    allow_reuse_address = True
+
+    def __init__(self, responses: dict[str, dict] | None = None) -> None:
+        self.received: list[dict] = []
+        self.responses = dict(responses or _DEFAULT_CONTROL_RESPONSES)
+        super().__init__(("127.0.0.1", 0), _MockControlHandler)
+
+
+@pytest.fixture()
+def mock_control_server():
+    """TCP server on an ephemeral port that mimics the control channel.
+
+    Yields a dict with:
+        host:      "127.0.0.1"
+        port:      OS-assigned ephemeral port
+        received:  list of all received JSON request dicts
+        responses: mutable dict of canned responses keyed by command
+        server:    the underlying TCPServer (for overriding responses)
+    """
+    server = _MockControlServer()
+    host, port = server.server_address
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield {
+            "host": host,
+            "port": port,
+            "received": server.received,
+            "responses": server.responses,
+            "server": server,
+        }
+    finally:
+        server.shutdown()
+        server.server_close()
