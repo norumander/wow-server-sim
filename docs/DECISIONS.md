@@ -384,3 +384,27 @@ Tick ordering: `control.process_pending_commands()` → `registry.on_tick(tick)`
 - Watch mode provides live monitoring without a full dashboard (useful before Step 17)
 - `--format json` output enables piping to external monitoring tools
 - `build_health_report()` orchestrator designed for reuse by the dashboard (Step 17)
+
+---
+
+## ADR-021: Mock Client Spawner — Async TCP with Weighted Traffic Generation
+
+**Date:** 2026-02-24
+**Status:** Accepted
+
+**Context:** Step 15 needs a mock client spawner that can generate N concurrent simulated players sending WoW-realistic game traffic to the C++ server. The PRD requires 50+ concurrent clients without tick rate degradation. The server currently accepts TCP connections and discards all received data (read loop for disconnect detection only), so payloads should match the C++ event types for protocol groundwork even though they are not yet parsed.
+
+**Decision:**
+1. **Async TCP with asyncio.gather** for concurrency. Each `MockGameClient` uses `asyncio.open_connection` (mirroring `ControlClient` from ADR-019). N clients run concurrently via `asyncio.gather`, each in its own coroutine. Sync wrapper `run_spawn()` calls `asyncio.run()` for CLI use.
+2. **Weighted traffic generation** with pure functions. Three action types matching C++ event types: movement (50%), spell_cast (30%), combat (20%). Payloads include all fields the C++ event classes expect (session_id, position, spell_id, cast_time_ticks, target, damage_type). Position tracking per client provides spatial coherence across movement events.
+3. **Per-client failure isolation.** Each client captures its own `OSError` on connection failure, returning a `ClientResult` with `connected=False` and error message. `spawn_clients` aggregates all results regardless of individual failures.
+4. **Three Pydantic models** in `wowsim.models`: `ClientConfig` (host, port, rate, duration), `ClientResult` (per-client outcome), `SpawnResult` (aggregate with client list). Enables `--format json` output and programmatic consumption.
+5. **ThreadingTCPServer fixture** for tests. Plain `TCPServer` would block on a single connection; `ThreadingTCPServer` handles N concurrent mock clients correctly. Mirrors the existing `_MockControlServer` pattern from conftest.py.
+
+**Consequences:**
+- Async design scales to 50+ clients without thread explosion — bounded by OS socket limits
+- Weighted traffic generation produces realistic I/O patterns for stress testing
+- Pure generation functions are independently testable without network dependencies
+- Payloads match C++ event types exactly, ready for protocol parsing when server adds message framing
+- Per-client failure handling means partial connectivity doesn't abort the entire spawn
+- 18 pytest cases cover models, traffic generation, client lifecycle, spawning, formatting, and CLI

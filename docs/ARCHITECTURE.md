@@ -278,6 +278,17 @@ AUTHENTICATING + DISCONNECT           → DISCONNECTING
 - **CLI:** `wowsim health --log-file <path>` with `--watch`/`--interval` for continuous monitoring, `--format json|text`, `--no-faults` to skip control channel, `--host`/`--port`/`--control-port` for server addresses
 - **Test strategy:** 20 pytest cases in 7 groups: health models (3), tick health computation (3), zone health and player count (3), status determination (3+2), server reachability (2), report building and formatting (2), CLI integration (2)
 
+### Mock Client Spawner (`wowsim/mock_client.py`)
+- **Responsibility:** Spawn N concurrent simulated players that generate WoW-realistic game traffic for stress testing and load generation
+- **Traffic generation:** Pure functions producing payloads matching C++ event types exactly — `generate_movement_action` (position with ±5/±0.5 delta), `generate_spell_cast_action` (spell_id from set, cast_time from set), `generate_combat_action` (ATTACK with 10–50 damage, PHYSICAL/MAGICAL). `choose_action` selects via weighted distribution: 50% movement, 30% spell_cast, 20% combat (matching realistic player behavior patterns)
+- **Async client:** `MockGameClient` uses `asyncio.open_connection` for non-blocking TCP I/O (mirroring `ControlClient` pattern from fault_trigger.py). Context manager for lifecycle. Position tracking per client provides spatial coherence across movement events
+- **Orchestration:** `spawn_clients(config, count)` runs N clients concurrently via `asyncio.gather`. Each client captures its own failures independently — connection errors don't abort siblings. `run_spawn()` sync wrapper via `asyncio.run()` for CLI use
+- **Per-client failure isolation:** `OSError` on connect/send produces a `ClientResult` with `connected=False` and error string. `SpawnResult` aggregates successful/failed counts and total actions
+- **Models:** `ClientConfig` (host, port, rate, duration), `ClientResult` (per-client outcome), `SpawnResult` (aggregate with client list) — Pydantic v2 in `wowsim.models`
+- **Formatting:** `format_spawn_result()` produces human-readable table with summary header (total/connected/failed/actions/duration) and per-client status lines
+- **CLI:** `wowsim spawn-clients --count 10 --duration 60 --host localhost --port 8080 --rate 2 --format text|json`
+- **Test strategy:** 18 pytest cases in 7 groups: models (3), traffic generation (3), action selection (2), single client lifecycle (3), multi-client spawning (3), formatting (2), CLI integration (2). `mock_game_server` fixture (ThreadingTCPServer on ephemeral port) in conftest.py
+
 ## Concurrency Model
 
 **MVP (Three Threads):**

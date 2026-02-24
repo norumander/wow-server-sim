@@ -7,6 +7,11 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- Mock client spawner (`wowsim.mock_client`): async TCP client that generates WoW-realistic game traffic with weighted action selection (50% movement, 30% spell cast, 20% combat). Spawns N concurrent simulated players via `asyncio.gather` with per-client failure isolation. Payloads match C++ event types exactly for protocol groundwork (ADR-021)
+- `ClientConfig`, `ClientResult`, `SpawnResult` Pydantic v2 models in `wowsim.models` — configuration, per-client outcomes, and aggregate spawn results with JSON serialization
+- `spawn-clients` CLI command: `wowsim spawn-clients --count 10 --duration 60 --host localhost --port 8080 --rate 2 --format text|json`. Replaces placeholder stub
+- Mock game server fixture (`mock_game_server`) in `tests/python/conftest.py` — ThreadingTCPServer on ephemeral port that accepts connections and discards data, tracking connection counts and bytes received
+- 18 pytest cases for mock client covering models (3), traffic generation (3), action selection (2), single client lifecycle (3), multi-client spawning (3), formatting (2), CLI integration (2)
 - Health check reporter (`wowsim.health_check`): aggregates server health from telemetry logs with pure computation functions for tick rate stats, zone health, player count estimation, and three-tier status determination (healthy/degraded/critical). Reuses `log_parser` anomaly detection and `fault_trigger` fault status queries (ADR-020)
 - `TickHealth`, `ZoneHealthSummary`, `HealthReport` Pydantic v2 models in `wowsim.models` — composing existing `Anomaly` and `FaultInfo` models for complete health snapshots
 - `health` CLI command: `wowsim health --log-file <path>` with `--watch`/`--interval` for continuous monitoring, `--format json|text` for output format, `--no-faults` to skip control channel queries, `--host`/`--port`/`--control-port` for server addresses
