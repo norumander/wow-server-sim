@@ -403,4 +403,97 @@ FaultStatus SlowLeakFault::status() const {
     return s;
 }
 
+// --- F7: SplitBrainFault ---
+
+FaultId SplitBrainFault::id() const { return "split-brain"; }
+std::string SplitBrainFault::description() const { return "Create phantom entities with divergent state across zones"; }
+FaultMode SplitBrainFault::mode() const { return FaultMode::TICK_SCOPED; }
+
+bool SplitBrainFault::activate(const FaultConfig& config) {
+    config_ = config;
+    active_ = true;
+    phantoms_created_.clear();
+    tick_counter_ = 0;
+    ticks_elapsed_ = 0;
+    ++activations_;
+    if (config.params.contains("phantom_count")) {
+        phantom_count_ = config.params["phantom_count"].get<uint32_t>();
+    } else {
+        phantom_count_ = 2;
+    }
+    if (config.params.contains("phantom_base_id")) {
+        phantom_base_id_ = config.params["phantom_base_id"].get<uint64_t>();
+    } else {
+        phantom_base_id_ = 2000001;
+    }
+    return true;
+}
+
+void SplitBrainFault::deactivate() {
+    active_ = false;
+    phantoms_created_.clear();
+    tick_counter_ = 0;
+}
+
+bool SplitBrainFault::is_active() const { return active_; }
+
+void SplitBrainFault::on_tick(uint64_t /*current_tick*/, Zone* zone) {
+    if (!active_ || zone == nullptr) {
+        return;
+    }
+
+    ++tick_counter_;
+    auto zid = zone->zone_id();
+
+    // Phase 1: Create phantom entities on first tick per zone
+    if (!phantoms_created_[zid]) {
+        for (uint32_t i = 0; i < phantom_count_; ++i) {
+            uint64_t phantom_id = phantom_base_id_ + i;
+            zone->add_entity(Entity(phantom_id, EntityType::NPC));
+        }
+        phantoms_created_[zid] = true;
+
+        if (Logger::is_initialized()) {
+            Logger::instance().event("fault", "Split brain: phantoms created", {
+                {"fault_id", id()},
+                {"zone_id", zid},
+                {"phantom_count", phantom_count_}
+            });
+        }
+    }
+
+    // Phase 2: Inject divergent movement events every tick
+    for (uint32_t i = 0; i < phantom_count_; ++i) {
+        uint64_t phantom_id = phantom_base_id_ + i;
+        Position pos;
+        if (zid % 2 == 1) {
+            // Odd zone: move east (along x)
+            pos = {static_cast<float>(tick_counter_ * 10), 0.0f, 0.0f};
+        } else {
+            // Even zone: move north (along y)
+            pos = {0.0f, static_cast<float>(tick_counter_ * 10), 0.0f};
+        }
+        zone->push_event(std::make_unique<MovementEvent>(phantom_id, pos));
+    }
+
+    if (Logger::is_initialized()) {
+        Logger::instance().event("fault", "Split brain: divergent state", {
+            {"fault_id", id()},
+            {"zone_id", zid},
+            {"tick_counter", tick_counter_}
+        });
+    }
+}
+
+FaultStatus SplitBrainFault::status() const {
+    FaultStatus s;
+    s.id = id();
+    s.mode = mode();
+    s.active = active_;
+    s.activations = activations_;
+    s.ticks_elapsed = ticks_elapsed_;
+    s.config = active_ ? config_.params : nlohmann::json::object();
+    return s;
+}
+
 }  // namespace wow

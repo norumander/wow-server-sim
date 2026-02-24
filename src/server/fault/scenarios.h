@@ -164,4 +164,32 @@ private:
     uint64_t tick_counter_ = 0;
 };
 
+/// F7: Split Brain — creates phantom entities with divergent state across zones.
+///
+/// On first tick per zone, adds phantom_count entities. On every tick, injects
+/// MovementEvents with zone-dependent positions: odd zone_id moves east,
+/// even zone_id moves north. Same entity ID in multiple zones with different
+/// positions = state divergence (the "split brain" signal).
+class SplitBrainFault : public Fault {
+public:
+    FaultId id() const override;
+    std::string description() const override;
+    FaultMode mode() const override;
+    bool activate(const FaultConfig& config) override;
+    void deactivate() override;
+    bool is_active() const override;
+    void on_tick(uint64_t current_tick, Zone* zone) override;
+    FaultStatus status() const override;
+
+private:
+    bool active_ = false;
+    FaultConfig config_;
+    uint64_t activations_ = 0;
+    uint64_t ticks_elapsed_ = 0;
+    uint32_t phantom_count_ = 2;
+    uint64_t phantom_base_id_ = 2000001;
+    std::map<uint32_t, bool> phantoms_created_;
+    uint64_t tick_counter_ = 0;
+};
+
 }  // namespace wow
