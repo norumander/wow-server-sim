@@ -459,3 +459,36 @@ class TestOrchestratorAbortOnBuildFail:
         assert len(result.stages) == 1
         assert result.stages[0].stage == "build"
         assert result.stages[0].passed is False
+
+
+# ============================================================
+# Group H: CLI Integration (2 tests)
+# ============================================================
+
+
+class TestCLIDeployHelp:
+    """deploy --help shows expected options."""
+
+    def test_help(self) -> None:
+        from click.testing import CliRunner
+        from wowsim.cli import main
+
+        runner = CliRunner()
+        result = runner.invoke(main, ["deploy", "--help"])
+        assert result.exit_code == 0, result.output
+        assert "--fault-id" in result.output
+        assert "--action" in result.output
+        assert "--canary-duration" in result.output
+        assert "--rollback-on" in result.output
+
+
+class TestCLIDeployMissingFaultId:
+    """deploy without --fault-id exits with error."""
+
+    def test_missing_fault_id(self) -> None:
+        from click.testing import CliRunner
+        from wowsim.cli import main
+
+        runner = CliRunner()
+        result = runner.invoke(main, ["deploy"])
+        assert result.exit_code != 0
