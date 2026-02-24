@@ -11,6 +11,7 @@
 
 #include "server/game_server.h"
 #include "server/session.h"
+#include "server/session_event_queue.h"
 #include "server/telemetry/logger.h"
 
 using json = nlohmann::json;
@@ -454,6 +455,83 @@ TEST_F(GameServerTest, EdgeCase_RapidConnectDisconnect)
     // Wait for all disconnects to process — count should return to 0
     EXPECT_TRUE(wait_for([&] { return server.connection_count() == 0; }, 2000ms));
     EXPECT_EQ(server.connection_count(), 0u);
+
+    server.stop();
+}
+
+// ===========================================================================
+// Group G: Session Event Notifications (3 tests)
+// ===========================================================================
+
+TEST_F(GameServerTest, SessionEvents_ConnectPushesEvent)
+{
+    wow::SessionEventQueue queue;
+    wow::GameServerConfig cfg{0};
+    wow::GameServer server(cfg);
+    server.set_session_event_queue(&queue);
+    server.start();
+
+    asio::io_context client_ctx;
+    auto sock = connect_client(client_ctx, server.port());
+    ASSERT_TRUE(wait_for([&] { return server.connection_count() == 1; }));
+
+    auto events = queue.drain();
+    ASSERT_EQ(events.size(), 1u);
+    EXPECT_EQ(events[0].type, wow::SessionEventType::CONNECTED);
+    EXPECT_GT(events[0].session_id, 0u);
+
+    sock.close();
+    server.stop();
+}
+
+TEST_F(GameServerTest, SessionEvents_DisconnectPushesEvent)
+{
+    wow::SessionEventQueue queue;
+    wow::GameServerConfig cfg{0};
+    wow::GameServer server(cfg);
+    server.set_session_event_queue(&queue);
+    server.start();
+
+    asio::io_context client_ctx;
+    auto sock = connect_client(client_ctx, server.port());
+    ASSERT_TRUE(wait_for([&] { return server.connection_count() == 1; }));
+
+    // Drain the CONNECTED event
+    queue.drain();
+
+    sock.close();
+    ASSERT_TRUE(wait_for([&] { return server.connection_count() == 0; }));
+
+    auto events = queue.drain();
+    ASSERT_GE(events.size(), 1u);
+
+    // Find the DISCONNECTED event
+    bool found_disconnect = false;
+    for (const auto& evt : events) {
+        if (evt.type == wow::SessionEventType::DISCONNECTED) {
+            found_disconnect = true;
+            EXPECT_GT(evt.session_id, 0u);
+        }
+    }
+    EXPECT_TRUE(found_disconnect);
+
+    server.stop();
+}
+
+TEST_F(GameServerTest, SessionEvents_NullQueueSafe)
+{
+    // No queue set — connect/disconnect should not crash
+    wow::GameServerConfig cfg{0};
+    wow::GameServer server(cfg);
+    // Intentionally NOT calling set_session_event_queue
+    server.start();
+
+    asio::io_context client_ctx;
+    auto sock = connect_client(client_ctx, server.port());
+    ASSERT_TRUE(wait_for([&] { return server.connection_count() == 1; }));
+
+    sock.close();
+    ASSERT_TRUE(wait_for([&] { return server.connection_count() == 0; }));
 
     server.stop();
 }
