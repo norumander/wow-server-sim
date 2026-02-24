@@ -22,6 +22,7 @@ add_executable(unit_tests
     ${CMAKE_SOURCE_DIR}/src/server/events/event_queue.cpp
     ${CMAKE_SOURCE_DIR}/src/server/world/entity.cpp
     ${CMAKE_SOURCE_DIR}/src/server/world/zone.cpp
+    ${CMAKE_SOURCE_DIR}/src/server/world/zone_manager.cpp
 )
 target_link_libraries(unit_tests
     PRIVATE

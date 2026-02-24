@@ -9,6 +9,7 @@
 #include "server/events/spellcast.h"
 #include "server/telemetry/logger.h"
 #include "server/world/zone.h"
+#include "server/world/zone_manager.h"
 
 using namespace wow;
 
@@ -279,4 +280,195 @@ TEST_F(ZoneTestWithLogger, ExceptionEmitsTelemetryError) {
     std::string output = log_output_.str();
     EXPECT_NE(output.find("Zone tick exception"), std::string::npos);
     EXPECT_NE(output.find("error"), std::string::npos);
+}
+
+// ===========================================================================
+// Group G: ZoneManager Zone Lifecycle (2 tests)
+// ===========================================================================
+
+TEST(ZoneManager, CreateZoneAndGetZone) {
+    ZoneManager mgr;
+    auto id = mgr.create_zone(ZoneConfig{1, "Elwynn Forest"});
+
+    EXPECT_EQ(id, 1u);
+    EXPECT_EQ(mgr.zone_count(), 1u);
+
+    auto* zone = mgr.get_zone(1);
+    ASSERT_NE(zone, nullptr);
+    EXPECT_EQ(zone->zone_id(), 1u);
+    EXPECT_EQ(zone->name(), "Elwynn Forest");
+}
+
+TEST(ZoneManager, GetNonexistentZoneReturnsNull) {
+    ZoneManager mgr;
+    EXPECT_EQ(mgr.get_zone(999), nullptr);
+}
+
+// ===========================================================================
+// Group H: ZoneManager Session Assignment (3 tests)
+// ===========================================================================
+
+TEST(ZoneManager, AssignSessionCreatesEntity) {
+    ZoneManager mgr;
+    mgr.create_zone(ZoneConfig{1, "Test"});
+
+    EXPECT_TRUE(mgr.assign_session(100, 1));
+    EXPECT_EQ(mgr.session_zone(100), 1u);
+
+    auto* zone = mgr.get_zone(1);
+    ASSERT_NE(zone, nullptr);
+    EXPECT_TRUE(zone->has_entity(100));
+    EXPECT_EQ(zone->entity_count(), 1u);
+}
+
+TEST(ZoneManager, AssignToNonexistentZoneFails) {
+    ZoneManager mgr;
+    EXPECT_FALSE(mgr.assign_session(100, 999));
+    EXPECT_EQ(mgr.session_zone(100), kNoZone);
+}
+
+TEST(ZoneManager, RemoveSessionSucceeds) {
+    ZoneManager mgr;
+    mgr.create_zone(ZoneConfig{1, "Test"});
+    mgr.assign_session(100, 1);
+
+    EXPECT_TRUE(mgr.remove_session(100));
+    EXPECT_EQ(mgr.session_zone(100), kNoZone);
+
+    auto* zone = mgr.get_zone(1);
+    EXPECT_FALSE(zone->has_entity(100));
+    EXPECT_EQ(zone->entity_count(), 0u);
+}
+
+// ===========================================================================
+// Group I: ZoneManager Session Transfer (2 tests)
+// ===========================================================================
+
+TEST(ZoneManager, TransferMovesEntityBetweenZones) {
+    ZoneManager mgr;
+    mgr.create_zone(ZoneConfig{1, "Source"});
+    mgr.create_zone(ZoneConfig{2, "Target"});
+    mgr.assign_session(100, 1);
+
+    EXPECT_TRUE(mgr.transfer_session(100, 2));
+    EXPECT_EQ(mgr.session_zone(100), 2u);
+    EXPECT_FALSE(mgr.get_zone(1)->has_entity(100));
+    EXPECT_TRUE(mgr.get_zone(2)->has_entity(100));
+}
+
+TEST(ZoneManager, TransferPreservesEntityState) {
+    ZoneManager mgr;
+    mgr.create_zone(ZoneConfig{1, "Source"});
+    mgr.create_zone(ZoneConfig{2, "Target"});
+    mgr.assign_session(100, 1);
+
+    // Modify entity state in source zone
+    auto* source = mgr.get_zone(1);
+    source->push_event(std::make_unique<MovementEvent>(100, Position{10, 20, 30}));
+    source->tick(1);
+
+    // Transfer to target zone
+    mgr.transfer_session(100, 2);
+
+    // Verify state was preserved
+    auto& entity = mgr.get_zone(2)->entities().at(100);
+    EXPECT_EQ(entity.position().x, 10.0f);
+    EXPECT_EQ(entity.position().y, 20.0f);
+    EXPECT_EQ(entity.position().z, 30.0f);
+}
+
+// ===========================================================================
+// Group J: ZoneManager Event Routing (3 tests)
+// ===========================================================================
+
+TEST(ZoneManager, RouteEventsToCorrectZones) {
+    ZoneManager mgr;
+    mgr.create_zone(ZoneConfig{1, "Zone1"});
+    mgr.create_zone(ZoneConfig{2, "Zone2"});
+    mgr.assign_session(100, 1);
+    mgr.assign_session(200, 2);
+
+    std::vector<std::unique_ptr<GameEvent>> events;
+    events.push_back(std::make_unique<MovementEvent>(100, Position{1, 0, 0}));
+    events.push_back(std::make_unique<MovementEvent>(200, Position{2, 0, 0}));
+
+    auto routed = mgr.route_events(events);
+    EXPECT_EQ(routed, 2u);
+    EXPECT_EQ(mgr.get_zone(1)->event_queue_depth(), 1u);
+    EXPECT_EQ(mgr.get_zone(2)->event_queue_depth(), 1u);
+}
+
+TEST(ZoneManager, RouteUnknownSessionDiscards) {
+    ZoneManager mgr;
+    mgr.create_zone(ZoneConfig{1, "Zone1"});
+    mgr.assign_session(100, 1);
+
+    std::vector<std::unique_ptr<GameEvent>> events;
+    events.push_back(std::make_unique<MovementEvent>(100, Position{1, 0, 0}));
+    events.push_back(std::make_unique<MovementEvent>(999, Position{2, 0, 0}));
+
+    auto routed = mgr.route_events(events);
+    EXPECT_EQ(routed, 1u);
+    EXPECT_EQ(mgr.get_zone(1)->event_queue_depth(), 1u);
+}
+
+TEST(ZoneManager, RoutedEventsProcessedOnTick) {
+    ZoneManager mgr;
+    mgr.create_zone(ZoneConfig{1, "Zone1"});
+    mgr.assign_session(100, 1);
+
+    std::vector<std::unique_ptr<GameEvent>> events;
+    events.push_back(std::make_unique<MovementEvent>(100, Position{5, 10, 15}));
+    mgr.route_events(events);
+
+    auto result = mgr.tick_all(1);
+
+    auto& entity = mgr.get_zone(1)->entities().at(100);
+    EXPECT_EQ(entity.position().x, 5.0f);
+    EXPECT_EQ(entity.position().y, 10.0f);
+    EXPECT_EQ(entity.position().z, 15.0f);
+    EXPECT_EQ(result.total_events, 1u);
+}
+
+// ===========================================================================
+// Group K: ZoneManager Tick All & Isolation (2 tests)
+// ===========================================================================
+
+TEST(ZoneManager, TickAllProcessesAllZones) {
+    ZoneManager mgr;
+    mgr.create_zone(ZoneConfig{1, "Zone1"});
+    mgr.create_zone(ZoneConfig{2, "Zone2"});
+
+    auto result = mgr.tick_all(1);
+    EXPECT_EQ(result.zones_ticked, 2u);
+    EXPECT_EQ(result.zone_results.size(), 2u);
+}
+
+TEST(ZoneManager, CrashedZoneDoesNotAffectOthers) {
+    ZoneManager mgr;
+    mgr.create_zone(ZoneConfig{1, "CrashZone"});
+    mgr.create_zone(ZoneConfig{2, "HealthyZone"});
+    mgr.assign_session(200, 2);
+
+    // Inject fault into zone 1
+    mgr.get_zone(1)->set_pre_tick_hook([]() {
+        throw std::runtime_error("zone 1 crash");
+    });
+
+    // Push a movement event for zone 2
+    std::vector<std::unique_ptr<GameEvent>> events;
+    events.push_back(std::make_unique<MovementEvent>(200, Position{7, 8, 9}));
+    mgr.route_events(events);
+
+    auto result = mgr.tick_all(1);
+
+    // Zone 1 crashed but zone 2 processed normally
+    EXPECT_EQ(result.zones_with_errors, 1u);
+    EXPECT_EQ(mgr.get_zone(1)->state(), ZoneState::CRASHED);
+    EXPECT_EQ(mgr.get_zone(2)->state(), ZoneState::ACTIVE);
+
+    auto& entity = mgr.get_zone(2)->entities().at(200);
+    EXPECT_EQ(entity.position().x, 7.0f);
+    EXPECT_EQ(entity.position().y, 8.0f);
+    EXPECT_EQ(entity.position().z, 9.0f);
 }

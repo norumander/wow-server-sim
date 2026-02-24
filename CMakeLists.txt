@@ -74,6 +74,7 @@ add_executable(wow-server-sim
     src/server/events/event_queue.cpp
     src/server/world/entity.cpp
     src/server/world/zone.cpp
+    src/server/world/zone_manager.cpp
 )
 
 target_link_libraries(wow-server-sim
