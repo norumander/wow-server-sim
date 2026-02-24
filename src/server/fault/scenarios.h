@@ -134,4 +134,34 @@ private:
     bool source_crashed_ = false;
 };
 
+/// F6: Slow Leak — increments tick processing delay over time.
+///
+/// Each tick increments a counter. Every `increment_every` ticks, adds
+/// `increment_ms` to the accumulated delay and sleeps for the total.
+/// Simulates gradual performance degradation (e.g., memory leak, cache bloat).
+class SlowLeakFault : public Fault {
+public:
+    FaultId id() const override;
+    std::string description() const override;
+    FaultMode mode() const override;
+    bool activate(const FaultConfig& config) override;
+    void deactivate() override;
+    bool is_active() const override;
+    void on_tick(uint64_t current_tick, Zone* zone) override;
+    FaultStatus status() const override;
+
+    /// Current accumulated delay in milliseconds (for status/testing).
+    uint32_t current_delay_ms() const;
+
+private:
+    bool active_ = false;
+    FaultConfig config_;
+    uint64_t activations_ = 0;
+    uint64_t ticks_elapsed_ = 0;
+    uint32_t increment_ms_ = 1;
+    uint32_t increment_every_ = 100;
+    uint32_t current_delay_ms_ = 0;
+    uint64_t tick_counter_ = 0;
+};
+
 }  // namespace wow

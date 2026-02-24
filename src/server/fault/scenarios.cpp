@@ -343,4 +343,64 @@ FaultStatus CascadingZoneFailureFault::status() const {
     return s;
 }
 
+// --- F6: SlowLeakFault ---
+
+FaultId SlowLeakFault::id() const { return "slow-leak"; }
+std::string SlowLeakFault::description() const { return "Increment tick processing delay over time"; }
+FaultMode SlowLeakFault::mode() const { return FaultMode::TICK_SCOPED; }
+
+bool SlowLeakFault::activate(const FaultConfig& config) {
+    config_ = config;
+    active_ = true;
+    current_delay_ms_ = 0;
+    tick_counter_ = 0;
+    ticks_elapsed_ = 0;
+    ++activations_;
+    if (config.params.contains("increment_ms")) {
+        increment_ms_ = config.params["increment_ms"].get<uint32_t>();
+    } else {
+        increment_ms_ = 1;
+    }
+    if (config.params.contains("increment_every")) {
+        increment_every_ = config.params["increment_every"].get<uint32_t>();
+    } else {
+        increment_every_ = 100;
+    }
+    return true;
+}
+
+void SlowLeakFault::deactivate() {
+    active_ = false;
+    current_delay_ms_ = 0;
+    tick_counter_ = 0;
+}
+
+bool SlowLeakFault::is_active() const { return active_; }
+
+void SlowLeakFault::on_tick(uint64_t /*current_tick*/, Zone* /*zone*/) {
+    if (!active_) {
+        return;
+    }
+    ++tick_counter_;
+    if (increment_every_ > 0 && tick_counter_ % increment_every_ == 0) {
+        current_delay_ms_ += increment_ms_;
+    }
+    if (current_delay_ms_ > 0) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(current_delay_ms_));
+    }
+}
+
+uint32_t SlowLeakFault::current_delay_ms() const { return current_delay_ms_; }
+
+FaultStatus SlowLeakFault::status() const {
+    FaultStatus s;
+    s.id = id();
+    s.mode = mode();
+    s.active = active_;
+    s.activations = activations_;
+    s.ticks_elapsed = ticks_elapsed_;
+    s.config = active_ ? config_.params : nlohmann::json::object();
+    return s;
+}
+
 }  // namespace wow
