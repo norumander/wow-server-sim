@@ -96,6 +96,29 @@ Modeled on real WoW server behavior to demonstrate domain expertise:
 - Tick stability under load testing
 - Telemetry overhead measurement
 
+## Phase 3 Scope: Game Mechanics Visibility
+
+Phase 2 revealed a critical gap: the server implements rich WoW game mechanics (spell casting, combat, movement) that are fully tested but invisible in the live demo and tooling. `Connection::do_read()` discards all TCP data from mock clients. Phase 3 closes this gap.
+
+### TCP Event Parsing (Milestone 1)
+- Replace the discard loop in `Connection::do_read()` with newline-delimited JSON parsing
+- Deserialize incoming payloads into `GameEvent` objects (movement, spell_cast, combat)
+- Route parsed events to the correct zone's `EventQueue` via `ZoneManager`
+- Graceful error handling: malformed JSON is logged and dropped, never crashes the connection
+
+### Game-Mechanic Telemetry in Tooling (Milestone 2)
+- Extend log_parser with game-mechanic aggregation: cast rates, GCD block rates, DPS, cast success rate
+- Extend health_check with game-mechanic status signals: high GCD block rate → degraded, zero combat → warning
+- Add Game Mechanics panel to the dashboard TUI
+
+### Demo Narrative Evolution (Milestone 3)
+- Rewrite demo.sh to showcase WoW-aware SRE: "spells fail under load → game-mechanic-aware detection → fix → canary validates cast success recovery"
+- Demo proves both infrastructure reliability AND WoW domain knowledge
+
+### Dashboard Polish (Milestone 4)
+- Per-zone cast/DPS columns, threat table summary view
+- Updated screenshots/GIFs for README reflecting game mechanic panels
+
 ## Success Criteria
 
 1. Server handles 50+ concurrent mock players without tick rate degradation
@@ -104,3 +127,7 @@ Modeled on real WoW server behavior to demonstrate domain expertise:
 4. Full demo walkthrough runs end-to-end in under 5 minutes
 5. All tests pass in CI (GitHub Actions)
 6. Documentation is complete and accurate
+7. Mock client traffic produces game-mechanic telemetry (spell casts, combat, movement) in live server
+8. Python tooling surfaces game-mechanic metrics (cast rate, DPS, GCD blocks) alongside infrastructure metrics
+9. Demo narrative showcases WoW-specific failure modes and their player impact
+10. Dashboard screenshot in README shows game-mechanic panels
