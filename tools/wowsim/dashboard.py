@@ -375,25 +375,29 @@ try:
             bar = self.query_one("#suggestion-bar", Static)
             bar.update(text)
 
-        @work(exclusive=True)
-        async def _fetch_fault_list(self) -> None:
-            """Fetch fault list via async ControlClient."""
-            from wowsim.fault_trigger import ControlClient
+        @work(exclusive=True, thread=True)
+        def _fetch_fault_list(self) -> None:
+            """Fetch fault list via sync wrapper in a worker thread."""
+            from wowsim.fault_trigger import list_all_faults
 
             try:
-                async with ControlClient(
+                resp = list_all_faults(
                     self._config.host, self._config.control_port
-                ) as client:
-                    resp = await client.list_faults()
-                    faults = resp.faults or []
+                )
+                faults = resp.faults or []
             except (OSError, Exception):
                 faults = self._fault_list
 
             self._fault_list = faults
-            fault_panel = self.query_one("#fault-panel", Static)
-            fault_panel.update(
-                f"FAULT CONTROL\n\n{_format_fault_table(faults)}"
-            )
+
+            def _update() -> None:
+                fault_panel = self.query_one("#fault-panel", Static)
+                fault_panel.update(
+                    f"FAULT CONTROL\n\n{_format_fault_table(faults)}"
+                )
+                self._update_suggestion()
+
+            self.call_from_thread(_update)
 
         def action_refresh(self) -> None:
             """Manual refresh triggered by 'r' key."""
@@ -417,10 +421,20 @@ try:
             )
             result = run_spawn(config, 5)
             ok = result.successful_connections
-            self.call_from_thread(
-                self.notify,
-                f"Spawned {ok}/5 clients",
-            )
+            if ok == 0:
+                first_err = next(
+                    (c.error for c in result.clients if c.error), "unknown"
+                )
+                self.call_from_thread(
+                    self.notify,
+                    f"Spawn failed: {first_err}",
+                    severity="error",
+                )
+            else:
+                self.call_from_thread(
+                    self.notify,
+                    f"Spawned {ok}/5 clients",
+                )
             self.call_from_thread(self._trigger_refresh)
 
         def action_activate_fault(self) -> None:

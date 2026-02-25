@@ -87,10 +87,11 @@ class ControlClient:
         self._reader: asyncio.StreamReader | None = None
         self._writer: asyncio.StreamWriter | None = None
 
-    async def connect(self) -> None:
+    async def connect(self, timeout: float = 3.0) -> None:
         """Open TCP connection to the control channel."""
-        self._reader, self._writer = await asyncio.open_connection(
-            self._host, self._port
+        self._reader, self._writer = await asyncio.wait_for(
+            asyncio.open_connection(self._host, self._port),
+            timeout=timeout,
         )
 
     async def close(self) -> None:
