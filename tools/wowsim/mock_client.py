@@ -128,10 +128,15 @@ class MockGameClient:
         """Whether the client has an active connection."""
         return self._writer is not None
 
-    async def connect(self) -> None:
-        """Open TCP connection to the game server."""
-        self._reader, self._writer = await asyncio.open_connection(
-            self._host, self._port
+    async def connect(self, timeout: float = 5.0) -> None:
+        """Open TCP connection to the game server.
+
+        Args:
+            timeout: Maximum seconds to wait for the connection.
+        """
+        self._reader, self._writer = await asyncio.wait_for(
+            asyncio.open_connection(self._host, self._port),
+            timeout=timeout,
         )
 
     async def close(self) -> None:

@@ -415,9 +415,17 @@ try:
             from wowsim.mock_client import run_spawn
             from wowsim.models import ClientConfig
 
+            # Use 127.0.0.1 explicitly: the C++ server binds IPv4 loopback,
+            # and "localhost" on Windows may resolve to ::1 (IPv6) first,
+            # causing WSAECONNABORTED (WinError 10053).
+            host = self._config.host
+            if host == "localhost":
+                host = "127.0.0.1"
+
             config = ClientConfig(
-                host=self._config.host,
+                host=host,
                 port=self._config.port,
+                duration_seconds=5.0,
             )
             result = run_spawn(config, 5)
             ok = result.successful_connections
