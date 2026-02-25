@@ -131,7 +131,14 @@ ZoneTickResult Zone::tick(uint64_t current_tick) {
             {"tick", current_tick},
             {"events_processed", result.events_processed},
             {"entities_moved", result.entities_moved},
-            {"duration_ms", result.duration_ms}
+            {"duration_ms", result.duration_ms},
+            {"casts_started", result.spell_result.casts_started},
+            {"casts_completed", result.spell_result.casts_completed},
+            {"casts_interrupted", result.spell_result.casts_interrupted},
+            {"gcd_blocked", result.spell_result.gcd_blocked},
+            {"attacks_processed", result.combat_result.attacks_processed},
+            {"total_damage_dealt", result.combat_result.total_damage_dealt},
+            {"kills", result.combat_result.kills},
         });
     }
 
