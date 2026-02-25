@@ -409,6 +409,100 @@ class TestStatusHealthyWithGoodGameMechanics:
 
 
 # ============================================================
+# Group D3: Per-Zone Game-Mechanic Fields (4 tests)
+# ============================================================
+
+
+class TestZoneHealthSummaryGameMechanicFields:
+    """ZoneHealthSummary supports total_casts, total_damage, zone_dps."""
+
+    def test_fields_populated(self) -> None:
+        zone = ZoneHealthSummary(
+            zone_id=1,
+            state="ACTIVE",
+            tick_count=100,
+            error_count=0,
+            avg_tick_duration_ms=3.2,
+            total_casts=50,
+            total_damage=10000,
+            zone_dps=500.0,
+        )
+        assert zone.total_casts == 50
+        assert zone.total_damage == 10000
+        assert zone.zone_dps == 500.0
+
+    def test_defaults_to_zero(self) -> None:
+        zone = ZoneHealthSummary(
+            zone_id=1,
+            state="ACTIVE",
+            tick_count=100,
+            error_count=0,
+            avg_tick_duration_ms=3.2,
+        )
+        assert zone.total_casts == 0
+        assert zone.total_damage == 0
+        assert zone.zone_dps == 0.0
+
+
+class TestComputeZoneHealthWithGameMechanicFields:
+    """compute_zone_health parses casts_started and total_damage_dealt."""
+
+    def test_parses_game_mechanic_fields(self) -> None:
+        entries = [
+            TelemetryEntry(
+                v=1,
+                timestamp=datetime(2026, 2, 25, 10, 0, 0, tzinfo=timezone.utc),
+                type="metric",
+                component="zone",
+                message="Zone tick completed",
+                data={
+                    "zone_id": 1,
+                    "duration_ms": 3.0,
+                    "casts_started": 5,
+                    "total_damage_dealt": 1000,
+                },
+            ),
+            TelemetryEntry(
+                v=1,
+                timestamp=datetime(2026, 2, 25, 10, 0, 1, tzinfo=timezone.utc),
+                type="metric",
+                component="zone",
+                message="Zone tick completed",
+                data={
+                    "zone_id": 1,
+                    "duration_ms": 3.0,
+                    "casts_started": 3,
+                    "total_damage_dealt": 500,
+                },
+            ),
+        ]
+        zones = compute_zone_health(entries)
+        assert len(zones) == 1
+        z = zones[0]
+        assert z.total_casts == 8  # 5 + 3
+        assert z.total_damage == 1500  # 1000 + 500
+        assert z.zone_dps > 0.0
+
+    def test_old_format_defaults_to_zero(self) -> None:
+        entries = [
+            TelemetryEntry(
+                v=1,
+                timestamp=datetime(2026, 2, 25, 10, 0, 0, tzinfo=timezone.utc),
+                type="metric",
+                component="zone",
+                message="Zone tick completed",
+                data={"zone_id": 1, "duration_ms": 3.0},
+            ),
+        ]
+        zones = compute_zone_health(entries)
+        assert len(zones) == 1
+        z = zones[0]
+        assert z.total_casts == 0
+        assert z.total_damage == 0
+        assert z.zone_dps == 0.0
+
+
+# ============================================================
 # Group E: Server Reachability (2 tests)
 # ============================================================
 

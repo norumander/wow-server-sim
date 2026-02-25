@@ -542,3 +542,23 @@ class TestDurationPicker:
         from wowsim.dashboard import DurationPickerScreen
 
         assert DurationPickerScreen is not None
+
+
+# ---------------------------------------------------------------------------
+# Group P: Zone table columns (2 tests)
+# ---------------------------------------------------------------------------
+
+
+class TestZoneColumns:
+    """ZONE_COLUMNS includes per-zone game-mechanic columns."""
+
+    def test_includes_casts_and_dps(self) -> None:
+        from wowsim.dashboard import ZONE_COLUMNS
+
+        assert "Casts" in ZONE_COLUMNS
+        assert "DPS" in ZONE_COLUMNS
+
+    def test_has_seven_columns(self) -> None:
+        from wowsim.dashboard import ZONE_COLUMNS
+
+        assert len(ZONE_COLUMNS) == 7
