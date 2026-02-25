@@ -60,3 +60,6 @@ desktop.ini
 
 # Original planning docs (converted to markdown in docs/)
 *.docx
+
+# Living state document (LLM context prompt, never committed)
+STATE.md
