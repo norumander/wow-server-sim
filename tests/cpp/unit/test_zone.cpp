@@ -270,6 +270,45 @@ TEST_F(ZoneTestWithLogger, TickEmitsTelemetryMetric) {
     EXPECT_NE(output.find("\"zone_id\":1"), std::string::npos);
 }
 
+TEST_F(ZoneTestWithLogger, TickTelemetryIncludesSpellAndCombatFields) {
+    Zone zone(ZoneConfig{1, "Elwynn"});
+
+    // Add two entities: attacker (session 1) and target (session 2)
+    Entity attacker(1);
+    Entity target(2);
+    target.combat_state().health = 100;
+    target.combat_state().max_health = 100;
+    target.combat_state().armor = 0.0f;
+    zone.add_entity(std::move(attacker));
+    zone.add_entity(std::move(target));
+
+    // Push a spell cast event (session 1 starts casting spell 42)
+    zone.push_event(std::make_unique<SpellCastEvent>(
+        1, SpellAction::CAST_START, 42, 10));
+
+    // Push a combat event (session 1 attacks session 2 for 30 damage)
+    zone.push_event(std::make_unique<CombatEvent>(
+        1, CombatAction::ATTACK, 2, 30, DamageType::PHYSICAL));
+
+    zone.tick(1);
+
+    std::string output = log_output_.str();
+
+    // Verify spell cast fields are present in telemetry
+    EXPECT_NE(output.find("\"casts_started\":1"), std::string::npos)
+        << "Zone tick telemetry should include casts_started field";
+    EXPECT_NE(output.find("\"gcd_blocked\":0"), std::string::npos)
+        << "Zone tick telemetry should include gcd_blocked field";
+
+    // Verify combat fields are present in telemetry
+    EXPECT_NE(output.find("\"attacks_processed\":1"), std::string::npos)
+        << "Zone tick telemetry should include attacks_processed field";
+    EXPECT_NE(output.find("\"total_damage_dealt\":"), std::string::npos)
+        << "Zone tick telemetry should include total_damage_dealt field";
+    EXPECT_NE(output.find("\"kills\":0"), std::string::npos)
+        << "Zone tick telemetry should include kills field";
+}
+
 TEST_F(ZoneTestWithLogger, ExceptionEmitsTelemetryError) {
     Zone zone(ZoneConfig{1, "Elwynn"});
     zone.set_pre_tick_hook([]() {
