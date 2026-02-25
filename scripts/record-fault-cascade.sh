@@ -5,7 +5,6 @@
 # Intended to run inside the recording Docker container.
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 WORK_DIR="/tmp/recording"
 OUTPUT_DIR="${OUTPUT_DIR:-/output}"
 CAST_FILE="$WORK_DIR/fault-cascade.cast"
@@ -54,71 +53,81 @@ start_server() {
 }
 
 # ---------------------------------------------------------------------------
-# The scenario script that asciinema records
+# Generate a standalone scenario script for asciinema to execute.
+# This avoids export -f issues across subprocess boundaries.
 # ---------------------------------------------------------------------------
-cascade_scenario() {
-    # Color utilities
-    BOLD='\033[1m'
-    DIM='\033[2m'
-    CYAN='\033[36m'
-    GREEN='\033[32m'
-    YELLOW='\033[33m'
-    RED='\033[31m'
-    MAGENTA='\033[35m'
-    RESET='\033[0m'
+SCENARIO_SCRIPT="$WORK_DIR/cascade-inner.sh"
 
-    header()  { echo -e "\n${BOLD}${CYAN}=== $1 ===${RESET}\n"; }
-    narrate() { echo -e "${DIM}$1${RESET}"; }
-    success() { echo -e "${GREEN}[OK]${RESET} $1"; }
-    warn()    { echo -e "${YELLOW}[!!]${RESET} $1"; }
-    run_cmd() { echo -e "${MAGENTA}\$ $1${RESET}"; eval "$1"; }
+cat > "$SCENARIO_SCRIPT" << 'SCENARIO_EOF'
+#!/usr/bin/env bash
+set -euo pipefail
 
-    echo -e "${BOLD}${CYAN}"
-    echo "  ╔══════════════════════════════════════════════════════╗"
-    echo "  ║  F5: Cascading Zone Failure — Reliability Scenario   ║"
-    echo "  ╚══════════════════════════════════════════════════════╝"
-    echo -e "${RESET}"
+TELEMETRY_FILE="/app/telemetry.jsonl"
 
-    # Phase 1: Healthy baseline
-    header "Phase 1: Healthy Baseline"
-    narrate "Spawning 20 simulated players across two zones..."
-    run_cmd "wowsim spawn-clients --count 20 --duration 5"
-    echo ""
-    narrate "Checking server health:"
-    run_cmd "wowsim health --log-file '$TELEMETRY_FILE' --no-faults"
-    success "Both zones healthy under normal load."
+# Color utilities
+BOLD='\033[1m'
+DIM='\033[2m'
+CYAN='\033[36m'
+GREEN='\033[32m'
+YELLOW='\033[33m'
+RED='\033[31m'
+MAGENTA='\033[35m'
+RESET='\033[0m'
 
-    # Phase 2: Inject cascading zone failure
-    header "Phase 2: Inject Cascading Zone Failure (F5)"
-    narrate "F5 crashes zone 1 and floods zone 2 with redirected traffic."
-    narrate "This simulates a real-world cascading failure pattern."
-    echo ""
-    run_cmd "wowsim inject-fault activate cascading-zone-failure --zone 1"
-    echo ""
-    narrate "Waiting 5 seconds for failure to propagate..."
-    sleep 5
+header()  { echo -e "\n${BOLD}${CYAN}=== $1 ===${RESET}\n"; }
+narrate() { echo -e "${DIM}$1${RESET}"; }
+success() { echo -e "${GREEN}[OK]${RESET} $1"; }
+warn()    { echo -e "${YELLOW}[!!]${RESET} $1"; }
+run_cmd() { echo -e "${MAGENTA}\$ $1${RESET}"; eval "$1"; }
 
-    # Phase 3: Observe degradation
-    header "Phase 3: Observe Degradation"
-    narrate "Checking health — expect zone 1 crashed, zone 2 overloaded:"
-    run_cmd "wowsim health --log-file '$TELEMETRY_FILE' --no-faults"
-    echo ""
-    narrate "Scanning for anomalies:"
-    run_cmd "wowsim parse-logs '$TELEMETRY_FILE' --anomalies"
-    warn "Cascading failure detected across zones."
+echo -e "${BOLD}${CYAN}"
+echo "  ╔══════════════════════════════════════════════════════╗"
+echo "  ║  F5: Cascading Zone Failure — Reliability Scenario   ║"
+echo "  ╚══════════════════════════════════════════════════════╝"
+echo -e "${RESET}"
 
-    # Phase 4: Recovery
-    header "Phase 4: Recovery"
-    narrate "Deactivating cascading-zone-failure fault..."
-    run_cmd "wowsim inject-fault deactivate cascading-zone-failure"
-    echo ""
-    narrate "Waiting 5 seconds for zones to recover..."
-    sleep 5
-    narrate "Final health check:"
-    run_cmd "wowsim health --log-file '$TELEMETRY_FILE' --no-faults"
-    echo ""
-    success "Zones recovered. Cascading failure scenario complete."
-}
+# Phase 1: Healthy baseline
+header "Phase 1: Healthy Baseline"
+narrate "Spawning 20 simulated players across two zones..."
+run_cmd "wowsim spawn-clients --count 20 --duration 5"
+echo ""
+narrate "Checking server health:"
+run_cmd "wowsim health --log-file '$TELEMETRY_FILE' --no-faults"
+success "Both zones healthy under normal load."
+
+# Phase 2: Inject cascading zone failure
+header "Phase 2: Inject Cascading Zone Failure (F5)"
+narrate "F5 crashes zone 1 and floods zone 2 with redirected traffic."
+narrate "This simulates a real-world cascading failure pattern."
+echo ""
+run_cmd "wowsim inject-fault activate cascading-zone-failure --zone 1"
+echo ""
+narrate "Waiting 5 seconds for failure to propagate..."
+sleep 5
+
+# Phase 3: Observe degradation
+header "Phase 3: Observe Degradation"
+narrate "Checking health — expect zone 1 crashed, zone 2 overloaded:"
+run_cmd "wowsim health --log-file '$TELEMETRY_FILE' --no-faults"
+echo ""
+narrate "Scanning for anomalies:"
+run_cmd "wowsim parse-logs '$TELEMETRY_FILE' --anomalies"
+warn "Cascading failure detected across zones."
+
+# Phase 4: Recovery
+header "Phase 4: Recovery"
+narrate "Deactivating cascading-zone-failure fault..."
+run_cmd "wowsim inject-fault deactivate cascading-zone-failure"
+echo ""
+narrate "Waiting 5 seconds for zones to recover..."
+sleep 5
+narrate "Final health check:"
+run_cmd "wowsim health --log-file '$TELEMETRY_FILE' --no-faults"
+echo ""
+success "Zones recovered. Cascading failure scenario complete."
+SCENARIO_EOF
+
+chmod +x "$SCENARIO_SCRIPT"
 
 # ---------------------------------------------------------------------------
 # Main — start server, record scenario, convert to GIF
@@ -128,20 +137,6 @@ echo "    Terminal: ${COLS}x${ROWS}"
 echo "    Playback speed: ${SPEED}x"
 
 start_server
-
-# Export the scenario function and variables so the subshell can use them
-export TELEMETRY_FILE
-export -f cascade_scenario
-
-# Write a helper script that the asciinema command will execute
-SCENARIO_SCRIPT="$WORK_DIR/cascade-inner.sh"
-cat > "$SCENARIO_SCRIPT" << 'INNER_EOF'
-#!/usr/bin/env bash
-set -euo pipefail
-# Re-source the function (exported functions work in bash subshells)
-cascade_scenario
-INNER_EOF
-chmod +x "$SCENARIO_SCRIPT"
 
 # Record with asciinema
 export ASCIINEMA_REC=1
@@ -157,7 +152,8 @@ echo "    Cast file: $(du -h "$CAST_FILE" | cut -f1)"
 echo "    Converting to GIF (speed=${SPEED}x, font-size=${FONT_SIZE})..."
 agg "$CAST_FILE" "$RAW_GIF" \
     --speed "$SPEED" \
-    --font-size "$FONT_SIZE"
+    --font-size "$FONT_SIZE" \
+    --font-family "DejaVu Sans Mono"
 
 echo "    Raw GIF: $(du -h "$RAW_GIF" | cut -f1)"
 

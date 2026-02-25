@@ -43,7 +43,8 @@ echo "    Cast file: $(du -h "$CAST_FILE" | cut -f1)"
 echo "    Converting to GIF (speed=${SPEED}x, font-size=${FONT_SIZE})..."
 agg "$CAST_FILE" "$RAW_GIF" \
     --speed "$SPEED" \
-    --font-size "$FONT_SIZE"
+    --font-size "$FONT_SIZE" \
+    --font-family "DejaVu Sans Mono"
 
 echo "    Raw GIF: $(du -h "$RAW_GIF" | cut -f1)"
 
