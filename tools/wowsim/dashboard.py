@@ -11,7 +11,7 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
-from wowsim.models import TelemetryEntry, TickHealth
+from wowsim.models import GameMechanicSummary, TelemetryEntry, TickHealth
 
 
 # ---------------------------------------------------------------------------
@@ -49,6 +49,26 @@ def format_tick_panel(tick: TickHealth | None) -> str:
         f"Max: {tick.max_duration_ms:.1f}ms  "
         f"Min: {tick.min_duration_ms:.1f}ms\n"
         f"Overruns: {tick.overrun_count} ({tick.overrun_pct:.1f}%)"
+    )
+
+
+def format_game_mechanics_panel(summary: GameMechanicSummary | None) -> str:
+    """Format game mechanics as a multi-line panel string.
+
+    Returns 'No data' placeholder when summary is None.
+    """
+    if summary is None:
+        return "No data"
+    c = summary.cast_metrics
+    cm = summary.combat_metrics
+    return (
+        f"Cast: {c.cast_success_rate * 100:.1f}% success"
+        f"  ({c.casts_completed}/{c.casts_started})\n"
+        f"GCD block: {c.gcd_block_rate * 100:.1f}%"
+        f"  Rate: {c.cast_rate_per_sec:.1f}/s\n"
+        f"DPS: {cm.overall_dps:.1f}"
+        f"  Dmg: {cm.total_damage}"
+        f"  Kills: {cm.kills}"
     )
 
 
@@ -318,6 +338,7 @@ try:
             yield Static("Loading...", id="status-bar")
             with Horizontal(id="panels"):
                 yield Static("TICK METRICS\n\nLoading...", id="tick-panel")
+                yield Static("GAME MECHANICS\n\nLoading...", id="game-panel")
                 yield DataTable(id="zone-table")
             yield Static("FAULT CONTROL\n\nLoading...", id="fault-panel")
             yield RichLog(id="event-log", highlight=True, markup=True)
@@ -340,6 +361,7 @@ try:
         def _fetch_health_data(self) -> None:
             """Fetch health data in a worker thread (sync I/O)."""
             try:
+                from wowsim.game_metrics import aggregate_game_mechanics
                 from wowsim.health_check import (
                     check_server_reachable,
                     compute_tick_health,
@@ -359,7 +381,12 @@ try:
                 zones = compute_zone_health(entries)
                 players = estimate_player_count(entries)
                 anomalies = detect_anomalies(entries)
-                status = determine_status(tick, zones, anomalies)
+                game_mech = aggregate_game_mechanics(entries) if entries else None
+                status = determine_status(
+                    tick, zones, anomalies,
+                    game_mechanics=game_mech,
+                    connected_players=players,
+                )
                 reachable = check_server_reachable(
                     self._config.host, self._config.control_port, timeout=1.0
                 )
@@ -369,7 +396,8 @@ try:
 
                 self.call_from_thread(
                     self._update_health_ui,
-                    status, reachable, players, uptime, tick, zones, new_entries, new_ts,
+                    status, reachable, players, uptime, tick, zones,
+                    new_entries, new_ts, game_mech,
                 )
             except Exception as exc:
                 self.call_from_thread(
@@ -386,6 +414,7 @@ try:
             zones: list,
             new_entries: list[TelemetryEntry],
             new_ts: datetime | None,
+            game_mechanics: GameMechanicSummary | None = None,
         ) -> None:
             """Update UI widgets with health data (runs on main thread)."""
             # Status bar
@@ -395,6 +424,12 @@ try:
             # Tick panel
             tick_panel = self.query_one("#tick-panel", Static)
             tick_panel.update(f"TICK METRICS\n\n{format_tick_panel(tick)}")
+
+            # Game mechanics panel
+            game_panel = self.query_one("#game-panel", Static)
+            game_panel.update(
+                f"GAME MECHANICS\n\n{format_game_mechanics_panel(game_mechanics)}"
+            )
 
             # Zone table
             table = self.query_one("#zone-table", DataTable)

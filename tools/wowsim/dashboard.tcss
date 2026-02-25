@@ -25,6 +25,14 @@ Screen {
     padding: 0 1;
 }
 
+#game-panel {
+    width: 1fr;
+    height: auto;
+    min-height: 5;
+    border: solid $primary;
+    padding: 0 1;
+}
+
 #zone-table {
     width: 2fr;
     height: auto;
