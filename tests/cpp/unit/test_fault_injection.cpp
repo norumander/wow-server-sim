@@ -642,3 +642,90 @@ TEST(ThunderingHerdFault, ResetOnDeactivate) {
     EXPECT_EQ(zone.entity_count(), 0u);
     EXPECT_FALSE(zone.has_entity(200));
 }
+
+// =============================================================================
+// Group M: Multi-Zone Fault Deduplication (3 tests)
+//
+// execute_pre_tick_faults() is called once per zone per game tick. Faults with
+// global-once-per-tick semantics must not fire multiple times when invoked for
+// different zones within the same game tick.
+// =============================================================================
+
+TEST(LatencySpikeFault, MultiZoneSleepDeduplication) {
+    LatencySpikeFault fault;
+    FaultConfig config;
+    config.params = {{"delay_ms", 50}};
+    fault.activate(config);
+
+    Zone zone1(ZoneConfig{1, "Zone 1"});
+    Zone zone2(ZoneConfig{2, "Zone 2"});
+
+    // Same tick number, two different zones — should sleep only once
+    auto start = std::chrono::steady_clock::now();
+    fault.on_tick(1, &zone1);
+    fault.on_tick(1, &zone2);
+    auto end = std::chrono::steady_clock::now();
+
+    auto elapsed_ms = std::chrono::duration<double, std::milli>(end - start).count();
+    // With bug: ~100ms (sleeps twice). Fixed: ~50ms (sleeps once).
+    EXPECT_GE(elapsed_ms, 50.0);
+    EXPECT_LT(elapsed_ms, 90.0);
+
+    // Next tick should sleep again (dedup is per-tick, not permanent)
+    start = std::chrono::steady_clock::now();
+    fault.on_tick(2, &zone1);
+    end = std::chrono::steady_clock::now();
+    elapsed_ms = std::chrono::duration<double, std::milli>(end - start).count();
+    EXPECT_GE(elapsed_ms, 50.0);
+}
+
+TEST(SlowLeakFault, MultiZoneCounterDeduplication) {
+    SlowLeakFault fault;
+    FaultConfig config;
+    // Increment 1ms every 1 tick for fast testing
+    config.params = {{"increment_ms", 1}, {"increment_every", 1}};
+    fault.activate(config);
+
+    Zone zone1(ZoneConfig{1, "Zone 1"});
+    Zone zone2(ZoneConfig{2, "Zone 2"});
+
+    // Call on_tick for each zone with same tick number
+    // Counter should only increment once per game tick
+    for (uint64_t t = 1; t <= 5; ++t) {
+        fault.on_tick(t, &zone1);
+        fault.on_tick(t, &zone2);
+    }
+
+    // With bug: counter increments twice per tick → delay = 10ms
+    // Fixed: counter increments once per tick → delay = 5ms
+    EXPECT_EQ(fault.current_delay_ms(), 5u);
+}
+
+TEST(SplitBrainFault, MultiZoneTickCounterDeduplication) {
+    SplitBrainFault fault;
+    FaultConfig config;
+    config.params = {{"phantom_count", 1}, {"phantom_base_id", 2000001}};
+    fault.activate(config);
+
+    Zone zone1(ZoneConfig{1, "Zone 1"});   // odd → x movement
+    Zone zone2(ZoneConfig{2, "Zone 2"});   // even → y movement
+
+    // Tick 1: create phantoms + inject movements for both zones
+    fault.on_tick(1, &zone1);
+    fault.on_tick(1, &zone2);
+
+    // Tick 2: inject more movements for both zones
+    fault.on_tick(2, &zone1);
+    fault.on_tick(2, &zone2);
+
+    // Process events in zone2 to apply positions
+    zone2.tick(2);
+
+    // After 2 game ticks, tick_counter_ should be 2.
+    // Even zone: position = (0, tick_counter*10, 0). Last event → (0, 20, 0)
+    // With bug: tick_counter_ is 4 → position (0, 40, 0)
+    auto it = zone2.entities().find(2000001);
+    ASSERT_NE(it, zone2.entities().end());
+    EXPECT_FLOAT_EQ(it->second.position().y, 20.0f);
+    EXPECT_FLOAT_EQ(it->second.position().x, 0.0f);
+}
