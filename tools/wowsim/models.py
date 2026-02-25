@@ -136,6 +136,9 @@ class ZoneHealthSummary(BaseModel):
     tick_count: int
     error_count: int
     avg_tick_duration_ms: float
+    total_casts: int = 0
+    total_damage: int = 0
+    zone_dps: float = 0.0
 
 
 class HealthReport(BaseModel):

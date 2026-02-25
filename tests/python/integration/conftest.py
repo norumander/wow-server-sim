@@ -81,16 +81,31 @@ def make_disconnect_line(session_id: int, ts: str) -> str:
 
 
 def make_zone_tick_line(
-    zone_id: int, events: int, duration_ms: float, ts: str
+    zone_id: int,
+    events: int,
+    duration_ms: float,
+    ts: str,
+    casts_started: int = 0,
+    total_damage_dealt: int = 0,
+    attacks_processed: int = 0,
 ) -> str:
-    """Build a zone tick completed metric line."""
-    return _entry(
-        "metric",
-        "zone",
-        "Zone tick completed",
-        {"zone_id": zone_id, "events_processed": events, "duration_ms": duration_ms},
-        ts,
-    )
+    """Build a zone tick completed metric line.
+
+    Optional game-mechanic params are only included when non-zero,
+    preserving backward compatibility with existing fixtures.
+    """
+    data: dict = {
+        "zone_id": zone_id,
+        "events_processed": events,
+        "duration_ms": duration_ms,
+    }
+    if casts_started:
+        data["casts_started"] = casts_started
+    if total_damage_dealt:
+        data["total_damage_dealt"] = total_damage_dealt
+    if attacks_processed:
+        data["attacks_processed"] = attacks_processed
+    return _entry("metric", "zone", "Zone tick completed", data, ts)
 
 
 def make_zone_error_line(zone_id: int, error: str, ts: str) -> str:

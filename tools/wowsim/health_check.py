@@ -61,6 +61,10 @@ def compute_zone_health(entries: list[TelemetryEntry]) -> list[ZoneHealthSummary
     """Extract per-zone health from zone tick metrics and zone errors."""
     zone_ticks: dict[int, list[float]] = defaultdict(list)
     zone_errors: dict[int, int] = defaultdict(int)
+    zone_casts: dict[int, int] = defaultdict(int)
+    zone_damage: dict[int, int] = defaultdict(int)
+    zone_first_ts: dict[int, float] = {}
+    zone_last_ts: dict[int, float] = {}
 
     for entry in entries:
         if (
@@ -71,6 +75,12 @@ def compute_zone_health(entries: list[TelemetryEntry]) -> list[ZoneHealthSummary
             zone_id = entry.data.get("zone_id", 0)
             duration = entry.data.get("duration_ms", 0.0)
             zone_ticks[zone_id].append(duration)
+            zone_casts[zone_id] += entry.data.get("casts_started", 0)
+            zone_damage[zone_id] += entry.data.get("total_damage_dealt", 0)
+            ts = entry.timestamp.timestamp()
+            if zone_id not in zone_first_ts:
+                zone_first_ts[zone_id] = ts
+            zone_last_ts[zone_id] = ts
         elif (
             entry.type == "error"
             and entry.component == "zone"
@@ -93,6 +103,15 @@ def compute_zone_health(entries: list[TelemetryEntry]) -> list[ZoneHealthSummary
 
         avg_duration = sum(ticks) / len(ticks) if ticks else 0.0
 
+        total_casts = zone_casts.get(zone_id, 0)
+        total_damage = zone_damage.get(zone_id, 0)
+        first_ts = zone_first_ts.get(zone_id)
+        last_ts = zone_last_ts.get(zone_id)
+        if first_ts is not None and last_ts is not None and last_ts > first_ts:
+            zone_dps = total_damage / (last_ts - first_ts)
+        else:
+            zone_dps = float(total_damage) if total_damage > 0 else 0.0
+
         summaries.append(
             ZoneHealthSummary(
                 zone_id=zone_id,
@@ -100,6 +119,9 @@ def compute_zone_health(entries: list[TelemetryEntry]) -> list[ZoneHealthSummary
                 tick_count=len(ticks),
                 error_count=errors,
                 avg_tick_duration_ms=avg_duration,
+                total_casts=total_casts,
+                total_damage=total_damage,
+                zone_dps=zone_dps,
             )
         )
 
@@ -287,11 +309,14 @@ def format_health_report(report: HealthReport) -> str:
     if report.zones:
         lines.append("Zones:")
         for z in report.zones:
-            lines.append(
+            line = (
                 f"  Zone {z.zone_id:<3}  {z.state:<10}  "
                 f"{z.tick_count} ticks   {z.error_count} errors   "
                 f"avg {z.avg_tick_duration_ms:.1f}ms"
             )
+            if z.total_casts > 0 or z.zone_dps > 0:
+                line += f"   {z.total_casts} casts  DPS {z.zone_dps:.1f}"
+            lines.append(line)
         lines.append("")
 
     if report.game_mechanics:

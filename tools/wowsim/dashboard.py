@@ -15,6 +15,14 @@ from wowsim.models import GameMechanicSummary, TelemetryEntry, TickHealth
 
 
 # ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
+ZONE_COLUMNS: tuple[str, ...] = ("Zone", "State", "Ticks", "Errors", "Avg (ms)", "Casts", "DPS")
+"""Column headers for the zone health DataTable (7 columns)."""
+
+
+# ---------------------------------------------------------------------------
 # Pure formatting functions (no UI dependency)
 # ---------------------------------------------------------------------------
 
@@ -348,7 +356,7 @@ try:
         def on_mount(self) -> None:
             """Initialize zone table columns and start refresh timer."""
             table = self.query_one("#zone-table", DataTable)
-            table.add_columns("Zone", "State", "Ticks", "Errors", "Avg (ms)")
+            table.add_columns(*ZONE_COLUMNS)
             self.set_interval(self._config.refresh_interval, self._trigger_refresh)
             self._trigger_refresh()
 
@@ -441,6 +449,8 @@ try:
                     str(z.tick_count),
                     str(z.error_count),
                     f"{z.avg_tick_duration_ms:.1f}",
+                    str(z.total_casts),
+                    f"{z.zone_dps:.1f}",
                 )
 
             # Event log — filter out noise (tick metrics + control channel chatter)
