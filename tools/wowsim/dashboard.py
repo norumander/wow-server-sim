@@ -411,15 +411,9 @@ try:
 
         @work(thread=True)
         def _do_spawn_clients(self) -> None:
-            """Spawn mock clients using synchronous sockets.
-
-            Avoids asyncio entirely — the ProactorEventLoop on Windows
-            produces WSAECONNABORTED on loopback TCP when run inside
-            a Textual worker thread.
-            """
+            """Spawn mock clients one at a time using plain sockets."""
             import json as _json
             import socket as _socket
-            import threading
             import time
 
             from wowsim.mock_client import choose_action
@@ -429,25 +423,27 @@ try:
                 host = "127.0.0.1"
             port = self._config.port
             count = 5
-            duration = 5.0
-            interval = 0.5  # 2 actions/sec
-
-            errors: list[str] = []
             ok_count = 0
-            lock = threading.Lock()
 
-            def _run_one(client_id: int) -> None:
-                nonlocal ok_count
+            for client_id in range(count):
                 try:
-                    sock = _socket.create_connection((host, port), timeout=3)
+                    sock = _socket.create_connection(
+                        (host, port), timeout=3
+                    )
+                    sock.setsockopt(
+                        _socket.IPPROTO_TCP, _socket.TCP_NODELAY, 1
+                    )
                 except OSError as exc:
-                    with lock:
-                        errors.append(str(exc))
-                    return
+                    self.call_from_thread(
+                        self.notify,
+                        f"Client {client_id} connect failed: {exc}",
+                        severity="error",
+                    )
+                    continue
+
                 try:
-                    deadline = time.monotonic() + duration
                     x, y, z = 0.0, 0.0, 0.0
-                    while time.monotonic() < deadline:
+                    for _ in range(6):
                         action = choose_action(client_id, x, y, z)
                         if action["type"] == "movement":
                             x = action["position"]["x"]
@@ -455,37 +451,32 @@ try:
                             z = action["position"]["z"]
                         payload = _json.dumps(action) + "\n"
                         sock.sendall(payload.encode())
-                        remaining = deadline - time.monotonic()
-                        if remaining > 0:
-                            time.sleep(min(interval, remaining))
-                    with lock:
-                        ok_count += 1
+                        time.sleep(0.3)
+                    ok_count += 1
                 except OSError as exc:
-                    with lock:
-                        errors.append(str(exc))
+                    self.call_from_thread(
+                        self.notify,
+                        f"Client {client_id} send failed: {exc}",
+                        severity="error",
+                    )
                 finally:
+                    try:
+                        sock.shutdown(_socket.SHUT_RDWR)
+                    except OSError:
+                        pass
                     sock.close()
 
-            threads = [
-                threading.Thread(target=_run_one, args=(i,))
-                for i in range(count)
-            ]
-            for t in threads:
-                t.start()
-            for t in threads:
-                t.join()
-
-            if ok_count == 0:
-                first_err = errors[0] if errors else "unknown"
+            if ok_count > 0:
                 self.call_from_thread(
                     self.notify,
-                    f"Spawn failed: {first_err}",
-                    severity="error",
+                    f"Spawned {ok_count}/{count} clients",
                 )
             else:
                 self.call_from_thread(
                     self.notify,
-                    f"Spawned {ok_count}/{count} clients",
+                    "All clients failed — is the server running on "
+                    f"{host}:{port}?",
+                    severity="error",
                 )
             self.call_from_thread(self._trigger_refresh)
 
