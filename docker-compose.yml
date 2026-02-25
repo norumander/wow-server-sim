@@ -20,3 +20,14 @@ services:
     restart: unless-stopped
     profiles:
       - server
+
+  # GIF recorder (docker compose --profile record run record)
+  record:
+    build:
+      context: .
+      dockerfile: Dockerfile.recording
+    entrypoint: ["bash", "/app/scripts/record-gifs.sh"]
+    volumes:
+      - ./docs/assets:/output
+    profiles:
+      - record

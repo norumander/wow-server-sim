@@ -1,0 +1,64 @@
+# Dockerfile.recording — Extends the main build with terminal recording tools.
+#
+# Adds asciinema, agg, and gifsicle so GIF captures can be produced inside
+# a container without requiring any host-side tooling.
+#
+# Usage:
+#   docker compose --profile record run record
+
+# ---- Build stage (identical to main Dockerfile) ----
+FROM gcc:13 AS builder
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        cmake \
+        make \
+        git \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build
+COPY CMakeLists.txt ./
+COPY src/ src/
+COPY tests/ tests/
+
+RUN mkdir -p out && cd out \
+    && cmake .. -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_EXE_LINKER_FLAGS="-static-libgcc -static-libstdc++" \
+    && make -j"$(nproc)"
+
+# ---- Runtime stage with recording tools ----
+FROM debian:bookworm-slim AS runtime
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        python3 \
+        python3-pip \
+        python3-venv \
+        curl \
+        gifsicle \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy server binary
+COPY --from=builder /build/out/wow-server-sim /app/wow-server-sim
+
+# Install Python tooling + asciinema into the venv (avoids PEP 668)
+COPY tools/ /app/tools/
+RUN python3 -m venv /app/.venv \
+    && /app/.venv/bin/pip install --upgrade pip \
+    && /app/.venv/bin/pip install -e /app/tools[dev] \
+    && /app/.venv/bin/pip install asciinema==2.4.0
+
+ENV PATH="/app/.venv/bin:${PATH}"
+
+# Install agg (asciinema GIF generator) as a static binary
+RUN curl -fsSL https://github.com/asciinema/agg/releases/download/v1.7.0/agg-x86_64-unknown-linux-gnu \
+        -o /usr/local/bin/agg \
+    && chmod +x /usr/local/bin/agg
+
+# Copy scripts
+COPY scripts/ /app/scripts/
+
+# Game port, control channel, telemetry UDP
+EXPOSE 8080 8081 9090/udp
+
+ENTRYPOINT ["bash", "/app/scripts/record-gifs.sh"]
