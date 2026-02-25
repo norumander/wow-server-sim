@@ -1,6 +1,6 @@
 # WoW Server Simulator
 
-![Tests](https://img.shields.io/badge/tests-463_passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-499_passing-brightgreen)
 ![C++](https://img.shields.io/badge/C%2B%2B-17-blue)
 ![Python](https://img.shields.io/badge/Python-3.11%2B-blue)
 ![License](https://img.shields.io/badge/license-MIT-lightgrey)
@@ -44,7 +44,7 @@ Two demo modes: a scripted 70-second walkthrough (`scripts/demo.sh`) for non-int
 
 ### Monitoring Dashboard
 
-Textual-based TUI with auto-refreshing panels for tick metrics, zone health, active faults, and a scrolling event log. Worker-thread health refresh for non-blocking sync I/O. Keyboard shortcuts for spawning clients (`s`) with configurable duration (10s/30s/60s/persistent), graceful despawn (`k`), fault picker modal (`a`), deactivation (`d`/`x`), and pipeline execution (`p`). Guided suggestion bar adapts to current state — showing despawn guidance when clients are running and next-step prompts throughout the reliability lifecycle.
+Textual-based TUI with auto-refreshing panels for tick metrics, zone health with per-zone game mechanics (Casts, DPS), threat table summary, active faults, and a scrolling event log. Worker-thread health refresh for non-blocking sync I/O. Keyboard shortcuts for spawning clients (`s`) with configurable duration (10s/30s/60s/persistent), graceful despawn (`k`), fault picker modal (`a`), deactivation (`d`/`x`), and pipeline execution (`p`). 7-column zone table shows infrastructure and game-mechanic metrics side by side. Threat table renders ranked damage dealers (damage = threat per WoW mechanics). Guided suggestion bar adapts to current state — showing despawn guidance when clients are running and next-step prompts throughout the reliability lifecycle.
 
 ### Deployment Pipeline
 
@@ -147,8 +147,8 @@ Tick Rate:
   Overruns:       0 (0.0%)
 
 Zones:
-  Zone 1    ACTIVE      200 ticks   0 errors   avg 2.8ms
-  Zone 2    ACTIVE      200 ticks   0 errors   avg 3.0ms
+  Zone 1    ACTIVE      200 ticks   0 errors   avg 2.8ms   42 casts  DPS 150.0
+  Zone 2    ACTIVE      200 ticks   0 errors   avg 3.0ms   38 casts  DPS 130.0
 
 Connected Players: 5
 Active Faults: none
@@ -171,8 +171,8 @@ Tick Rate:
   Overruns:       187 (46.8%)
 
 Zones:
-  Zone 1    ACTIVE      400 ticks   0 errors   avg 102.1ms
-  Zone 2    ACTIVE      400 ticks   0 errors   avg 104.8ms
+  Zone 1    ACTIVE      400 ticks   0 errors   avg 102.1ms   8 casts  DPS 20.0
+  Zone 2    ACTIVE      400 ticks   0 errors   avg 104.8ms   5 casts  DPS 12.0
 
 Connected Players: 5
 Active Faults: latency_spike
@@ -322,10 +322,10 @@ The server emits structured JSONL telemetry to `telemetry.jsonl`. Every line is 
 
 ## Project Stats
 
-- **267** C++ tests (GoogleTest) — server core, events, zones, faults, control channel
-- **180** Python tests (pytest) — CLI tools, models, formatting, orchestration, dashboard, benchmarks
+- **293** C++ tests (GoogleTest) — server core, events, zones, faults, control channel, event parsing
+- **190** Python tests (pytest) — CLI tools, models, formatting, orchestration, dashboard, benchmarks
 - **16** integration tests — connection lifecycle, fault injection/recovery, end-to-end
-- **29** Architecture Decision Records (ADRs)
+- **33** Architecture Decision Records (ADRs)
 - **8** fault injection scenarios (F1–F8)
 - **5** architecture diagrams (Mermaid)
 - **9** CLI modules under `wowsim`
@@ -344,14 +344,14 @@ The server emits structured JSONL telemetry to `telemetry.jsonl`. Every line is 
 ## Documentation
 
 - [Architecture](docs/ARCHITECTURE.md) — Component design, data flow, concurrency model
-- [Decision Records](docs/DECISIONS.md) — 29 ADRs for all architectural choices
+- [Decision Records](docs/DECISIONS.md) — 33 ADRs for all architectural choices
 - [Product Requirements](docs/PRD.md) — Full project scope, skills mapping, success criteria
 - [Changelog](docs/CHANGELOG.md) — Running log of all changes
 - [Capture Guide](docs/CAPTURE_GUIDE.md) — Instructions for recording screenshots and GIFs
 
 ## Project Status
 
-Phase 2 complete. Phase 3 (Game Mechanics Visibility) in progress.
+Phase 3 complete. All milestones delivered.
 
 **Phase 2** — all original success criteria met:
 
@@ -362,9 +362,9 @@ Phase 2 complete. Phase 3 (Game Mechanics Visibility) in progress.
 - All tests pass in CI (GitHub Actions)
 - Documentation is complete and accurate
 
-**Phase 3** — closing the game mechanics gap:
+**Phase 3** — game mechanics visibility (complete):
 
-- [ ] TCP event parsing — mock client traffic drives live game mechanics
-- [ ] Game-mechanic telemetry in tooling — cast rates, DPS, GCD blocks visible
-- [ ] Demo narrative evolution — WoW-aware SRE story
-- [ ] Dashboard polish — game mechanic panels, updated screenshots
+- [x] TCP event parsing — mock client traffic drives live game mechanics
+- [x] Game-mechanic telemetry in tooling — cast rates, DPS, GCD blocks visible
+- [x] Demo narrative evolution — WoW-aware SRE story
+- [x] Dashboard polish — 7-column zone table with Casts/DPS, threat table summary, per-zone game-mechanic telemetry
