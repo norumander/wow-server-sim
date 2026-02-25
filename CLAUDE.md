@@ -4,10 +4,10 @@
 A C++ game server with Python reliability tooling that demonstrates server reliability engineering skills for the WoW Server team at Blizzard. See `docs/PRD.md` for full requirements.
 
 ## Tech Stack
-- **Server**: C++17, CMake, POSIX sockets (or Boost.Asio), nlohmann/json
+- **Server**: C++17, CMake, standalone Asio (non-Boost), nlohmann/json
 - **Tooling**: Python 3.11+, Click CLI framework
 - **Testing**: GoogleTest (C++), pytest (Python)
-- **Dashboard**: Python curses (MVP) or Flask + WebSocket (polish)
+- **Dashboard**: Python Textual TUI
 - **Containerization**: Docker + docker-compose
 
 ## Project Structure
@@ -38,6 +38,7 @@ wow-server-sim/
 │   │   ├── world/
 │   │   │   ├── zone.h / .cpp           # Zone/instance isolation
 │   │   │   └── entity.h / .cpp         # Players, NPCs
+│   │   ├── event_parser.h / .cpp     # JSON-to-GameEvent deserialization
 │   │   ├── telemetry/
 │   │   │   ├── logger.h / .cpp         # Structured JSON logging
 │   │   │   └── counters.h / .cpp       # Performance counters
@@ -61,6 +62,7 @@ wow-server-sim/
 │   │   ├── test_combat.cpp
 │   │   ├── test_spellcast.cpp
 │   │   ├── test_zone.cpp
+│   │   ├── test_event_parser.cpp
 │   │   └── test_fault_injection.cpp
 │   └── python/
 │       ├── conftest.py
@@ -331,6 +333,44 @@ Follow this sequence. Each step is a complete TDD cycle (red → green → refac
 22. Architecture diagram generation
 23. README polish with GIFs/screenshots
 24. Docker compose for one-command demo
+```
+
+### Phase 3: Game Mechanics Visibility
+
+Close the critical gap: game mechanics are implemented and tested but invisible in the demo and tooling.
+TCP event parsing is the load-bearing feature — everything else depends on it.
+
+**Milestone 1 — TCP Event Parsing**
+```
+25. Newline-delimited JSON buffer accumulation in Connection read loop
+26. JSON-to-GameEvent deserialization (movement, spell_cast, combat)
+27. Malformed JSON graceful error handling (log + drop, never crash)
+28. Parsed event routing to correct zone EventQueue via ZoneManager
+29. End-to-end integration test — TCP JSON in, game mechanic telemetry out
+30. Extract EventParser into dedicated class
+```
+
+**Milestone 2 — Game-Mechanic Telemetry in Tooling**
+```
+31. log_parser: cast rate, GCD block rate, cast success rate aggregation
+32. log_parser: per-entity DPS calculation
+33. health_check: game-mechanic status signals (GCD block rate, cast success, combat activity)
+34. dashboard: Game Mechanics panel (cast rate, DPS, threat summary)
+35. Extract shared game-mechanic aggregation module
+```
+
+**Milestone 3 — Demo Narrative Evolution**
+```
+36. Integration test: fault injection degrades cast success rate
+37. Rewrite demo.sh with WoW-aware SRE narrative (baseline → break → game impact → detect → fix → canary)
+```
+
+**Milestone 4 — Dashboard Polish & README**
+```
+38. Per-zone cast/DPS columns in dashboard zone table
+39. Threat table summary view in dashboard
+40. Updated dashboard screenshot/GIF for README
+41. README update with new feature list and screenshots
 ```
 
 ## Quality Gates
