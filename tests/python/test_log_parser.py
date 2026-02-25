@@ -269,6 +269,92 @@ class TestAnomalyDetection:
 # ============================================================
 
 
+# ============================================================
+# Group G: Game Mechanics Formatting (2 tests)
+# ============================================================
+
+
+class TestFormatGameMechanics:
+    """format_game_mechanics renders a GameMechanicSummary as text."""
+
+    def test_contains_cast_metrics(self) -> None:
+        from wowsim.log_parser import format_game_mechanics
+        from wowsim.models import (
+            CastMetrics,
+            CombatMetrics,
+            EntityDPS,
+            GameMechanicSummary,
+        )
+
+        summary = GameMechanicSummary(
+            cast_metrics=CastMetrics(
+                casts_started=10,
+                casts_completed=8,
+                casts_interrupted=2,
+                gcd_blocked=3,
+                cast_success_rate=0.8,
+                gcd_block_rate=0.23,
+                cast_rate_per_sec=1.0,
+            ),
+            combat_metrics=CombatMetrics(
+                total_damage=5000,
+                total_attacks=15,
+                kills=2,
+                active_entities=3,
+                overall_dps=250.0,
+            ),
+            top_damage_dealers=[
+                EntityDPS(entity_id=1, total_damage=3000, dps=150.0, attack_count=8),
+                EntityDPS(entity_id=2, total_damage=2000, dps=100.0, attack_count=7),
+            ],
+            duration_seconds=20.0,
+        )
+        text = format_game_mechanics(summary)
+        assert "Cast Metrics" in text or "Spell Casting" in text
+        assert "10" in text  # casts_started
+        assert "80.0%" in text  # success rate
+        assert "23.0%" in text  # GCD block rate
+
+    def test_contains_combat_metrics(self) -> None:
+        from wowsim.log_parser import format_game_mechanics
+        from wowsim.models import (
+            CastMetrics,
+            CombatMetrics,
+            EntityDPS,
+            GameMechanicSummary,
+        )
+
+        summary = GameMechanicSummary(
+            cast_metrics=CastMetrics(
+                casts_started=5,
+                casts_completed=4,
+                casts_interrupted=1,
+                gcd_blocked=0,
+                cast_success_rate=0.8,
+                gcd_block_rate=0.0,
+                cast_rate_per_sec=0.5,
+            ),
+            combat_metrics=CombatMetrics(
+                total_damage=10000,
+                total_attacks=20,
+                kills=3,
+                active_entities=4,
+                overall_dps=500.0,
+            ),
+            top_damage_dealers=[
+                EntityDPS(entity_id=1, total_damage=5000, dps=250.0, attack_count=10),
+            ],
+            duration_seconds=20.0,
+        )
+        text = format_game_mechanics(summary)
+        assert "Combat" in text
+        assert "10000" in text or "10,000" in text  # total damage
+        assert "500.0" in text  # overall DPS
+        assert "3" in text  # kills
+        # Top damage dealers
+        assert "Entity 1" in text or "entity_id=1" in text or "#1" in text
+
+
 class TestCLI:
     """Tests for the parse-logs CLI command."""
 
@@ -302,3 +388,23 @@ class TestCLI:
         assert result.exit_code == 0
         assert "Anomalies" in result.output
         assert "latency_spike" in result.output
+
+    def test_cli_parse_logs_game_mechanics_flag(
+        self, tmp_path: Path, game_mechanic_entries
+    ) -> None:
+        """CLI parse-logs --game-mechanics shows cast and combat stats."""
+        from click.testing import CliRunner
+
+        from wowsim.cli import main
+
+        log_file = tmp_path / "game_mechanics.jsonl"
+        lines = [e.model_dump_json() for e in game_mechanic_entries]
+        log_file.write_text("\n".join(lines) + "\n")
+
+        runner = CliRunner()
+        result = runner.invoke(
+            main, ["parse-logs", str(log_file), "--game-mechanics"]
+        )
+        assert result.exit_code == 0
+        assert "Cast" in result.output or "Spell" in result.output
+        assert "Combat" in result.output
