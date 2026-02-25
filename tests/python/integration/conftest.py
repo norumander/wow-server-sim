@@ -254,21 +254,28 @@ def latency_spike_log(tmp_path: Path) -> Path:
 
 @pytest.fixture()
 def session_crash_log(tmp_path: Path) -> Path:
-    """F2 fault active: 10 normal ticks, 5 connections, 3 sudden disconnects,
-    5 more ticks."""
+    """F2 fault active: 10 normal ticks, 5 connections, 3 unexpected disconnects
+    (sessions that were never connected in this window), 5 more ticks.
+
+    The unexpected disconnects simulate a session-crash fault: the server
+    force-terminates sessions that connected in a prior analysis window,
+    so only the disconnect event appears — no matching connection.
+    """
     lines: list[str] = []
 
     # 10 normal ticks
     for i in range(1, 11):
         lines.append(make_tick_line(i, 3.0, False, _ts((i - 1) * 50)))
 
-    # 5 connections
+    # 5 connections (sessions 1-5)
     for sid in range(1, 6):
         lines.append(make_connection_line(sid, _ts(500 + sid * 10)))
 
-    # 3 sudden disconnects
-    for sid in range(1, 4):
-        lines.append(make_disconnect_line(sid, _ts(600 + sid * 10)))
+    # 3 unexpected disconnects — sessions 50-52 have NO matching connection
+    # in this analysis window, simulating a crash fault that force-terminates
+    # sessions from a prior window
+    for sid in range(50, 53):
+        lines.append(make_disconnect_line(sid, _ts(600 + (sid - 50) * 10)))
 
     # 5 more ticks
     for i in range(11, 16):
@@ -327,7 +334,8 @@ def recovery_scenario_log(tmp_path: Path) -> Path:
 
 @pytest.fixture()
 def fifty_player_log(tmp_path: Path) -> Path:
-    """50-player load: 50 connections, 20 normal ticks, 3 zone ticks, 0 errors."""
+    """50-player load: 50 connections, 20 normal ticks, 3 zone ticks,
+    game-mechanic activity, 0 errors."""
     lines: list[str] = []
 
     # 50 connections
@@ -338,10 +346,20 @@ def fifty_player_log(tmp_path: Path) -> Path:
     for i in range(1, 21):
         lines.append(make_tick_line(i, 3.0, False, _ts(100 + (i - 1) * 50)))
 
-    # 3 zone ticks
-    lines.append(make_zone_tick_line(1, 20, 3.0, _ts(1200)))
-    lines.append(make_zone_tick_line(2, 15, 2.5, _ts(1210)))
-    lines.append(make_zone_tick_line(3, 15, 2.8, _ts(1220)))
+    # 3 zone ticks (with game-mechanic fields)
+    lines.append(make_zone_tick_line(1, 20, 3.0, _ts(1200), casts_started=10, total_damage_dealt=5000, attacks_processed=8))
+    lines.append(make_zone_tick_line(2, 15, 2.5, _ts(1210), casts_started=8, total_damage_dealt=3500, attacks_processed=6))
+    lines.append(make_zone_tick_line(3, 15, 2.8, _ts(1220), casts_started=7, total_damage_dealt=3000, attacks_processed=5))
+
+    # Game-mechanic events (casts + combat) so determine_status sees activity
+    for i in range(10):
+        sid = (i % 5) + 1
+        lines.append(make_cast_started_line(sid, 100 + i, _ts(1300 + i * 20)))
+    for i in range(8):
+        sid = (i % 5) + 1
+        lines.append(make_cast_completed_line(sid, 100 + i, _ts(1500 + i * 20)))
+    for i in range(5):
+        lines.append(make_damage_dealt_line((i % 3) + 1, 100, 500 + i * 100, _ts(1700 + i * 20)))
 
     return write_log(tmp_path, "fifty_player.jsonl", lines)
 
