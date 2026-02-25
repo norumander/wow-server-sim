@@ -287,37 +287,42 @@ try:
         @work(exclusive=True, thread=True)
         def _fetch_health_data(self) -> None:
             """Fetch health data in a worker thread (sync I/O)."""
-            from wowsim.health_check import (
-                check_server_reachable,
-                compute_tick_health,
-                compute_zone_health,
-                determine_status,
-                estimate_player_count,
-                read_recent_entries,
-            )
-            from wowsim.log_parser import detect_anomalies
-
             try:
-                entries = read_recent_entries(self._config.log_file)
-            except OSError:
-                entries = []
+                from wowsim.health_check import (
+                    check_server_reachable,
+                    compute_tick_health,
+                    compute_zone_health,
+                    determine_status,
+                    estimate_player_count,
+                    read_recent_entries,
+                )
+                from wowsim.log_parser import detect_anomalies
 
-            tick = compute_tick_health(entries)
-            zones = compute_zone_health(entries)
-            players = estimate_player_count(entries)
-            anomalies = detect_anomalies(entries)
-            status = determine_status(tick, zones, anomalies)
-            reachable = check_server_reachable(
-                self._config.host, self._config.control_port, timeout=1.0
-            )
-            uptime = tick.total_ticks if tick else 0
+                try:
+                    entries = read_recent_entries(self._config.log_file)
+                except OSError:
+                    entries = []
 
-            new_entries, new_ts = filter_new_entries(entries, self._last_entry_ts)
+                tick = compute_tick_health(entries)
+                zones = compute_zone_health(entries)
+                players = estimate_player_count(entries)
+                anomalies = detect_anomalies(entries)
+                status = determine_status(tick, zones, anomalies)
+                reachable = check_server_reachable(
+                    self._config.host, self._config.control_port, timeout=1.0
+                )
+                uptime = tick.total_ticks if tick else 0
 
-            self.call_from_thread(
-                self._update_health_ui,
-                status, reachable, players, uptime, tick, zones, new_entries, new_ts,
-            )
+                new_entries, new_ts = filter_new_entries(entries, self._last_entry_ts)
+
+                self.call_from_thread(
+                    self._update_health_ui,
+                    status, reachable, players, uptime, tick, zones, new_entries, new_ts,
+                )
+            except Exception as exc:
+                self.call_from_thread(
+                    self.notify, f"Health fetch error: {exc}", severity="error"
+                )
 
         def _update_health_ui(
             self,
@@ -382,26 +387,31 @@ try:
         @work(exclusive=True, thread=True)
         def _fetch_fault_list(self) -> None:
             """Fetch fault list via sync wrapper in a worker thread."""
-            from wowsim.fault_trigger import list_all_faults
-
             try:
-                resp = list_all_faults(
-                    self._config.host, self._config.control_port
+                from wowsim.fault_trigger import list_all_faults
+
+                try:
+                    resp = list_all_faults(
+                        self._config.host, self._config.control_port
+                    )
+                    faults = resp.faults or []
+                except OSError:
+                    faults = self._fault_list
+
+                self._fault_list = faults
+
+                def _update() -> None:
+                    fault_panel = self.query_one("#fault-panel", Static)
+                    fault_panel.update(
+                        f"FAULT CONTROL\n\n{_format_fault_table(faults)}"
+                    )
+                    self._update_suggestion()
+
+                self.call_from_thread(_update)
+            except Exception as exc:
+                self.call_from_thread(
+                    self.notify, f"Fault list error: {exc}", severity="error"
                 )
-                faults = resp.faults or []
-            except (OSError, Exception):
-                faults = self._fault_list
-
-            self._fault_list = faults
-
-            def _update() -> None:
-                fault_panel = self.query_one("#fault-panel", Static)
-                fault_panel.update(
-                    f"FAULT CONTROL\n\n{_format_fault_table(faults)}"
-                )
-                self._update_suggestion()
-
-            self.call_from_thread(_update)
 
         def action_refresh(self) -> None:
             """Manual refresh triggered by 'r' key."""
@@ -416,31 +426,36 @@ try:
         @work(thread=True)
         def _do_spawn_clients(self) -> None:
             """Run mock client spawn in a worker thread."""
-            from wowsim.mock_client import run_spawn
-            from wowsim.models import ClientConfig
+            try:
+                from wowsim.mock_client import run_spawn
+                from wowsim.models import ClientConfig
 
-            config = ClientConfig(
-                host=self._config.host,
-                port=self._config.port,
-                duration_seconds=5.0,
-            )
-            result = run_spawn(config, 5)
-            ok = result.successful_connections
-            if ok == 0:
-                first_err = next(
-                    (c.error for c in result.clients if c.error), "unknown"
+                config = ClientConfig(
+                    host=self._config.host,
+                    port=self._config.port,
+                    duration_seconds=5.0,
                 )
+                result = run_spawn(config, 5)
+                ok = result.successful_connections
+                if ok == 0:
+                    first_err = next(
+                        (c.error for c in result.clients if c.error), "unknown"
+                    )
+                    self.call_from_thread(
+                        self.notify,
+                        f"Spawn failed: {first_err}",
+                        severity="error",
+                    )
+                else:
+                    self.call_from_thread(
+                        self.notify,
+                        f"Spawned {ok}/5 clients",
+                    )
+                self.call_from_thread(self._trigger_refresh)
+            except Exception as exc:
                 self.call_from_thread(
-                    self.notify,
-                    f"Spawn failed: {first_err}",
-                    severity="error",
+                    self.notify, f"Spawn error: {exc}", severity="error"
                 )
-            else:
-                self.call_from_thread(
-                    self.notify,
-                    f"Spawned {ok}/5 clients",
-                )
-            self.call_from_thread(self._trigger_refresh)
 
         def action_activate_fault(self) -> None:
             """Open fault picker modal (key: a)."""
@@ -525,41 +540,46 @@ try:
         @work(thread=True)
         def _do_run_pipeline(self, fault_id: str) -> None:
             """Run pipeline in a worker thread."""
-            from wowsim.models import PipelineConfig
-            from wowsim.pipeline import format_stage_result, run_pipeline
+            try:
+                from wowsim.models import PipelineConfig
+                from wowsim.pipeline import format_stage_result, run_pipeline
 
-            config = PipelineConfig(
-                fault_id=fault_id,
-                action="deactivate",
-                control_host=self._config.host,
-                control_port=self._config.control_port,
-                game_host=self._config.host,
-                game_port=self._config.port,
-                log_file=str(self._config.log_file),
-                canary_duration_seconds=6.0,
-                canary_poll_interval_seconds=2.0,
-            )
-            result = run_pipeline(config)
+                config = PipelineConfig(
+                    fault_id=fault_id,
+                    action="deactivate",
+                    control_host=self._config.host,
+                    control_port=self._config.control_port,
+                    game_host=self._config.host,
+                    game_port=self._config.port,
+                    log_file=str(self._config.log_file),
+                    canary_duration_seconds=6.0,
+                    canary_poll_interval_seconds=2.0,
+                )
+                result = run_pipeline(config)
 
-            def _log_results() -> None:
-                try:
-                    log = self.query_one("#event-log", RichLog)
-                    outcome = result.outcome.upper()
-                    bar = "=" * 40
-                    block = [bar, f"  PIPELINE: {outcome}"]
-                    for stage in result.stages:
-                        tag = "PASS" if stage.passed else "FAIL"
-                        block.append(f"  {tag}  {stage.name} ({stage.duration_seconds:.1f}s)")
-                    block.append(bar)
-                    log.write("\n".join(block))
-                except Exception as exc:
-                    self.notify(f"Log error: {exc}", severity="error")
-                self._pipeline_ran = True
-                self._update_suggestion()
-                self.notify(f"Pipeline: {result.outcome}")
+                def _log_results() -> None:
+                    try:
+                        log = self.query_one("#event-log", RichLog)
+                        outcome = result.outcome.upper()
+                        bar = "=" * 40
+                        block = [bar, f"  PIPELINE: {outcome}"]
+                        for stage in result.stages:
+                            tag = "PASS" if stage.passed else "FAIL"
+                            block.append(f"  {tag}  {stage.stage} ({stage.duration_seconds:.1f}s)")
+                        block.append(bar)
+                        log.write("\n".join(block))
+                    except Exception as exc:
+                        self.notify(f"Log error: {exc}", severity="error")
+                    self._pipeline_ran = True
+                    self._update_suggestion()
+                    self.notify(f"Pipeline: {result.outcome}")
 
-            self.call_from_thread(_log_results)
-            self.call_from_thread(self._trigger_refresh)
+                self.call_from_thread(_log_results)
+                self.call_from_thread(self._trigger_refresh)
+            except Exception as exc:
+                self.call_from_thread(
+                    self.notify, f"Pipeline error: {exc}", severity="error"
+                )
 
 except ImportError:
     pass
