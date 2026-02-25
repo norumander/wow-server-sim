@@ -227,24 +227,39 @@ def _detect_error_bursts(
 
 
 def _detect_unexpected_disconnects(entries: list[TelemetryEntry]) -> list[Anomaly]:
-    """Detect unexpected client disconnections."""
-    anomalies: list[Anomaly] = []
+    """Detect unexpected client disconnections.
+
+    Only flags disconnects without a matching 'Connection accepted' event
+    in the analysis window. Normal client lifecycle (connect → play →
+    disconnect) is not anomalous.
+    """
+    connected_ids: set = set()
+    disconnected_entries: list[TelemetryEntry] = []
+
     for entry in entries:
-        if (
-            entry.type == "event"
-            and entry.component == "game_server"
-            and entry.message == "Client disconnected"
-        ):
-            session_id = entry.data.get("session_id", "unknown")
-            anomalies.append(
-                Anomaly(
-                    type="unexpected_disconnect",
-                    severity="warning",
-                    timestamp=entry.timestamp,
-                    message=f"Client session {session_id} disconnected unexpectedly",
-                    details=dict(entry.data),
-                )
+        if entry.type != "event" or entry.component != "game_server":
+            continue
+        session_id = entry.data.get("session_id")
+        if entry.message == "Connection accepted" and session_id is not None:
+            connected_ids.add(session_id)
+        elif entry.message == "Client disconnected":
+            disconnected_entries.append(entry)
+
+    anomalies: list[Anomaly] = []
+    for entry in disconnected_entries:
+        session_id = entry.data.get("session_id", "unknown")
+        if session_id in connected_ids:
+            # Matched pair — normal lifecycle, not anomalous
+            continue
+        anomalies.append(
+            Anomaly(
+                type="unexpected_disconnect",
+                severity="warning",
+                timestamp=entry.timestamp,
+                message=f"Client session {session_id} disconnected unexpectedly",
+                details=dict(entry.data),
             )
+        )
     return anomalies
 
 
