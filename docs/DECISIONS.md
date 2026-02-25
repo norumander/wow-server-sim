@@ -640,3 +640,21 @@ Server stays on standard ports (8080/8081), so separate terminals can still run 
 - Malformed JSON logged and dropped, never disconnects client or crashes server
 - Intake queue follows the existing two-stage model (intake → route_events → per-zone queues)
 - 25 new tests (20 EventParser + 5 GameServer), 292 total, 0 regressions
+
+---
+
+## ADR-032: Game-Mechanic Integration Tests — Fixture-Based Degradation Proof
+
+**Date:** 2026-02-25
+**Status:** Accepted
+
+**Context:** Milestone 2 wired game-mechanic telemetry into all Python tools, but integration tests had zero game-mechanic telemetry entries. The demo narrative claimed game impact but no test proved the causal chain: infrastructure fault → game-mechanic degradation.
+
+**Decision:** Add fixture-based integration tests using synthesized JSONL log files with game-mechanic events. Two scenario fixtures represent the same server under healthy and fault conditions, with deterministic cast/combat counts. Tests use `aggregate_game_mechanics()` and `build_health_report()` directly — no live server required. Spike ticks use warning-level durations (65-85ms) to test game-mechanic degradation signals specifically, avoiding critical latency anomalies that would mask the game-mechanic status path.
+
+**Consequences:**
+- Proves the full causal chain: latency fault → tick overrun → cast interruption → degraded game-mechanic status
+- Tests run in <15s with no server dependency, composable with existing mock server fixtures
+- Warning-level spikes (not critical) isolate the game-mechanic degradation path in `determine_status()`
+- 5 reusable line builders (`make_cast_started_line`, etc.) available for future game-mechanic integration tests
+- Pattern extends naturally to F5-F8 advanced fault scenarios in future milestones

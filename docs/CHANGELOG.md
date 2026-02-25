@@ -7,6 +7,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- Demo narrative evolution (Phase 3, Milestone 3): 7-phase WoW-aware SRE lifecycle in `demo.sh` — baseline with game-mechanic telemetry, break, game impact measurement (NEW phase), diagnose with causal linking, fix with recovery verification, pipeline, summary. Key narrative: "Infrastructure reliability IS game reliability — every tick overrun is a failed spell cast"
+- Game-mechanic degradation integration tests (Phase 3, Milestone 3): 4 tests in `test_game_mechanic_degradation.py` proving fault injection degrades cast success rate. Baseline (80% success → healthy) vs fault-degraded (30% success under latency spikes → degraded). 5 new line builders and 2 scenario fixtures in integration conftest
 - Game-mechanic telemetry in Python tooling (Phase 3, Milestone 2): shared `game_metrics.py` aggregation module computes cast metrics (success rate, GCD block rate, cast rate/s), per-entity DPS, and combat metrics (total damage, kills, active entities) from telemetry entries. Pure functions, no I/O — consumed by log_parser, health_check, and dashboard
 - `CastMetrics`, `EntityDPS`, `CombatMetrics`, `GameMechanicSummary` Pydantic v2 models in `wowsim.models`. `HealthReport` gains optional `game_mechanics` field
 - `format_game_mechanics()` in `log_parser.py`: renders cast/combat stats and top damage dealers as human-readable text

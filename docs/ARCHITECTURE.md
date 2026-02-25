@@ -376,24 +376,26 @@ See the [Session State Machine Diagram](diagrams/session-state-machine.md) for a
 Integration tests verify that all Python tools compose correctly in the documented workflow: **connect → play → inject fault → detect → recover**. Tests use mock servers from `conftest.py` plus synthesized JSONL telemetry log files. With `main.cpp` fully wired, tests can also be extended with a real server subprocess fixture.
 
 ### Test Infrastructure (`tests/python/integration/conftest.py`)
-- **Telemetry line helpers:** Module-level functions (`make_tick_line`, `make_connection_line`, `make_disconnect_line`, `make_zone_tick_line`, `make_zone_error_line`, `make_combat_error_line`) build JSONL lines matching the C++ server's telemetry schema
-- **Scenario fixtures:** 6 pytest fixtures generating deterministic JSONL log files covering normal operation, latency spikes (F1), session crashes (F2), zone crashes, recovery arcs (healthy → fault → recovery), and 50-player load
+- **Telemetry line helpers:** Module-level functions (`make_tick_line`, `make_connection_line`, `make_disconnect_line`, `make_zone_tick_line`, `make_zone_error_line`, `make_combat_error_line`, `make_cast_started_line`, `make_cast_completed_line`, `make_cast_interrupted_line`, `make_gcd_blocked_line`, `make_damage_dealt_line`) build JSONL lines matching the C++ server's telemetry schema
+- **Scenario fixtures:** 8 pytest fixtures generating deterministic JSONL log files covering normal operation, latency spikes (F1), session crashes (F2), zone crashes, recovery arcs (healthy → fault → recovery), 50-player load, baseline game mechanics (80% cast success → healthy), and fault-degraded game mechanics (30% cast success under latency spikes → degraded)
 - **Timestamps:** Sequential from `2026-02-24T12:00:00.000Z` with 50ms tick increments, matching the 20 Hz server tick rate
 - **Fixture reuse:** Integration conftest reuses `mock_game_server` and `mock_control_server` from the parent `tests/python/conftest.py`
 
-### Test Organization (16 tests, 3 files)
+### Test Organization (20 tests, 4 files)
 
 | File | Tests | Scope |
 |------|-------|-------|
 | `test_connection_lifecycle.py` | 6 | Client connections + telemetry parsing + player counting |
 | `test_fault_and_recovery.py` | 6 | Fault inject/deactivate + anomaly detection + health status transitions |
 | `test_end_to_end.py` | 4 | Full pipeline composition + 50-client stress + all fault types |
+| `test_game_mechanic_degradation.py` | 4 | Fault → game-mechanic degradation: baseline healthy, fault degraded, metric comparison, report format |
 
 ### Tool Composition Verified
 Each integration test exercises 2+ tools together:
 - **mock_client** `run_spawn` → **log_parser** `parse_file` → **health_check** `estimate_player_count`
 - **fault_trigger** `activate_fault` → **log_parser** `detect_anomalies` → verify anomaly type
 - **health_check** `build_health_report` → **log_parser** `detect_anomalies` + **health_check** `determine_status`
+- **game_metrics** `aggregate_game_mechanics` → compare baseline vs degraded cast success rate, GCD block rate, interrupts
 - Full 5-tool pipeline: spawn → activate → detect → deactivate → verify recovery
 
 ### Extensibility
@@ -401,18 +403,19 @@ With `main.cpp` fully wired, tests can be extended with a real server subprocess
 
 ## Demo Script (`scripts/demo.sh`)
 
-A narrated, color-coded bash script that demonstrates the full server reliability lifecycle in ~70 seconds. Composes all Python CLI tools against the live C++ server.
+A narrated, color-coded bash script that demonstrates the full WoW-aware SRE lifecycle in ~90 seconds. Composes all Python CLI tools against the live C++ server. The key narrative: infrastructure reliability IS game reliability — every tick overrun is a failed spell cast.
 
 ### Phase Walkthrough
 
 | Phase | Duration | CLI Commands | What It Shows |
 |-------|----------|-------------|---------------|
-| **1. Baseline** | ~15s | `spawn-clients --count 5 --duration 5`, `health --no-faults` | Healthy server with player traffic |
+| **1. Baseline** | ~15s | `spawn-clients --count 5 --duration 5`, `health --no-faults`, `parse-logs --game-mechanics` | Healthy server with game activity: cast success ~80%, DPS active |
 | **2. Break It** | ~10s | `inject-fault activate latency-spike --delay-ms 200`, `health --no-faults` | Tick degradation under 200ms fault (4x overrun) |
-| **3. Diagnose** | ~3s | `parse-logs --anomalies`, `inject-fault status latency-spike` | Anomaly detection + root cause identification |
-| **4. Fix It** | ~10s | `inject-fault deactivate latency-spike`, `health --no-faults` | Manual remediation and recovery verification |
-| **5. Pipeline** | ~20s | `deploy --fault-id latency-spike --action activate --delay-ms 200 --canary-duration 10 --canary-interval 2 --rollback-on critical` | Automated canary deployment with rollback |
-| **6. Summary** | ~5s | `health --no-faults` | Final health check and lifecycle recap |
+| **3. Game Impact** | ~10s | `parse-logs --game-mechanics` | Player-visible degradation: cast success dropped, GCD blocking, DPS fell |
+| **4. Diagnose** | ~5s | `parse-logs --anomalies`, `inject-fault status latency-spike` | Anomaly detection + root cause linked to game impact |
+| **5. Fix It** | ~10s | `inject-fault deactivate latency-spike`, `health --no-faults`, `parse-logs --game-mechanics` | Manual remediation + game-mechanic recovery verification |
+| **6. Pipeline** | ~15s | `deploy --fault-id latency-spike --action activate --delay-ms 200 --canary-duration 10 --canary-interval 2 --rollback-on critical` | Automated canary deployment with rollback |
+| **7. Summary** | ~10s | `health --no-faults` | 7-phase recap: "Infrastructure reliability is game reliability" |
 
 ### Cross-Platform Support
 - **Binary detection:** checks `build/Debug/wow-server-sim.exe` (Windows/MSVC), `build/wow-server-sim.exe` (Windows/other), `build/wow-server-sim` (Linux)
