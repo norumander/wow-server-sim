@@ -7,6 +7,14 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- Configurable spawn duration: `s` key now opens a `DurationPickerScreen` modal with 10s, 30s, 60s, and persistent (until stopped) options. Replaces hardcoded 5-second spawn
+- Graceful despawn keybinding (`k`): signals `threading.Event` to cleanly disconnect all running mock clients. Server sees clean TCP EOF → DISCONNECTED events
+- `DURATION_OPTIONS` constant and `DurationPickerScreen` ModalScreen in `wowsim.dashboard`
+- `stop_event: threading.Event | None` parameter on `MockGameClient.run()`, `_run_one()`, `spawn_clients()`, and `run_spawn()` — checked each loop iteration for cooperative cancellation. Supports `float('inf')` duration for persistent mode
+- `spawn_active` parameter on `compute_suggestion()` — shows despawn guidance when clients are running
+- `action_quit()` override signals stop_event before exit for clean shutdown with persistent clients
+- Dashboard CSS for `DurationPickerScreen` and `#duration-options`
+- 12 new pytest cases: stop_event early termination (4), spawn_active suggestion (3), despawn binding (2), duration picker (3). Total: 173 non-integration Python tests passing
 - Interactive demo command (`wowsim demo`): single command that auto-detects the server binary, starts it as a subprocess, and launches an enhanced dashboard with guided suggestions. Suggestion bar adapts to state (spawn players → inject fault → observe → recover → pipeline → quit). Fault picker modal lists all 8 scenarios (F1-F8) with descriptions. Spawn clients (`s`), pipeline (`p`), and fault activation (`a`) keybindings use thread workers for Textual compatibility (ADR-029)
 - `wowsim.demo_runner` module: testable pure functions for binary detection (`find_server_binary`), telemetry cleanup (`clean_telemetry`, `default_telemetry_path`), and `ServerProcess` class for subprocess lifecycle with readiness detection
 - `FAULT_CATALOG` dict in `wowsim.dashboard`: all 8 fault scenarios with descriptions and default params, `format_fault_option` formatting helper
