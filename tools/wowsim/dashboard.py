@@ -351,12 +351,14 @@ try:
                     f"{z.avg_tick_duration_ms:.1f}",
                 )
 
-            # Event log — filter out noisy tick metrics (already in tick panel)
+            # Event log — filter out noise (tick metrics + control channel chatter)
             if new_entries:
                 self._last_entry_ts = new_ts
                 log = self.query_one("#event-log", RichLog)
                 for entry in new_entries:
                     if entry.type == "metric":
+                        continue
+                    if entry.component == "control_channel":
                         continue
                     log.write(format_event_line(entry))
 
