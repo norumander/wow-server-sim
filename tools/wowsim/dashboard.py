@@ -11,7 +11,7 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
-from wowsim.models import GameMechanicSummary, TelemetryEntry, TickHealth
+from wowsim.models import EntityDPS, GameMechanicSummary, TelemetryEntry, TickHealth
 
 
 # ---------------------------------------------------------------------------
@@ -78,6 +78,25 @@ def format_game_mechanics_panel(summary: GameMechanicSummary | None) -> str:
         f"  Dmg: {cm.total_damage}"
         f"  Kills: {cm.kills}"
     )
+
+
+def format_threat_table_panel(top_dealers: list[EntityDPS] | None) -> str:
+    """Format the threat table as a ranked list for the game mechanics panel.
+
+    Returns 'No data' when top_dealers is None or empty.
+    Damage ranking equals threat ranking per ADR-012.
+    """
+    if not top_dealers:
+        return "No data"
+    lines: list[str] = []
+    for rank, dealer in enumerate(top_dealers, 1):
+        lines.append(
+            f"#{rank} Entity {dealer.entity_id}"
+            f"      {dealer.total_damage} dmg"
+            f"  {dealer.dps:.1f} DPS"
+            f"  ({dealer.attack_count} atk)"
+        )
+    return "\n".join(lines)
 
 
 def format_event_line(entry: TelemetryEntry) -> str:
@@ -435,9 +454,11 @@ try:
 
             # Game mechanics panel
             game_panel = self.query_one("#game-panel", Static)
-            game_panel.update(
-                f"GAME MECHANICS\n\n{format_game_mechanics_panel(game_mechanics)}"
-            )
+            game_content = f"GAME MECHANICS\n\n{format_game_mechanics_panel(game_mechanics)}"
+            if game_mechanics and game_mechanics.top_damage_dealers:
+                threat_text = format_threat_table_panel(game_mechanics.top_damage_dealers)
+                game_content += f"\n\nTHREAT TABLE\n{threat_text}"
+            game_panel.update(game_content)
 
             # Zone table
             table = self.query_one("#zone-table", DataTable)
