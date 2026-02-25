@@ -16,6 +16,7 @@ from wowsim.log_parser import detect_anomalies, parse_line
 from wowsim.models import (
     Anomaly,
     FaultInfo,
+    GameMechanicSummary,
     HealthReport,
     TelemetryEntry,
     TickHealth,
@@ -122,6 +123,8 @@ def determine_status(
     tick: TickHealth | None,
     zones: list[ZoneHealthSummary],
     anomalies: list[Anomaly],
+    game_mechanics: GameMechanicSummary | None = None,
+    connected_players: int = 0,
 ) -> str:
     """Determine overall health status: 'healthy', 'degraded', or 'critical'."""
     # Critical: any critical anomaly OR any CRASHED zone
@@ -137,6 +140,20 @@ def determine_status(
         return "degraded"
     if tick is not None and tick.overrun_pct > 10.0:
         return "degraded"
+
+    # Degraded: game-mechanic signals
+    if game_mechanics is not None:
+        gm = game_mechanics
+        if gm.cast_metrics.gcd_block_rate > 0.5:
+            return "degraded"
+        if gm.cast_metrics.casts_started > 0 and gm.cast_metrics.cast_success_rate < 0.5:
+            return "degraded"
+        if (
+            connected_players > 0
+            and gm.combat_metrics.total_attacks == 0
+            and gm.cast_metrics.casts_started == 0
+        ):
+            return "degraded"
 
     return "healthy"
 
@@ -199,6 +216,13 @@ def build_health_report(
     error_count = sum(1 for e in entries if e.type == "error")
     uptime_ticks = tick.total_ticks if tick else 0
 
+    # Game-mechanic aggregation
+    game_mechanics: GameMechanicSummary | None = None
+    if entries:
+        from wowsim.game_metrics import aggregate_game_mechanics
+
+        game_mechanics = aggregate_game_mechanics(entries)
+
     active_faults: list[FaultInfo] = []
     if not skip_faults:
         try:
@@ -210,7 +234,11 @@ def build_health_report(
         except (OSError, Exception):
             pass
 
-    status = determine_status(tick, zones, anomalies)
+    status = determine_status(
+        tick, zones, anomalies,
+        game_mechanics=game_mechanics,
+        connected_players=players,
+    )
 
     return HealthReport(
         timestamp=datetime.now(UTC),
@@ -223,6 +251,7 @@ def build_health_report(
         active_faults=active_faults,
         error_count=error_count,
         uptime_ticks=uptime_ticks,
+        game_mechanics=game_mechanics,
     )
 
 
@@ -263,6 +292,19 @@ def format_health_report(report: HealthReport) -> str:
                 f"{z.tick_count} ticks   {z.error_count} errors   "
                 f"avg {z.avg_tick_duration_ms:.1f}ms"
             )
+        lines.append("")
+
+    if report.game_mechanics:
+        gm = report.game_mechanics
+        c = gm.cast_metrics
+        cm = gm.combat_metrics
+        lines.append("Game Mechanics:")
+        lines.append(f"  Cast success:   {c.cast_success_rate * 100:.1f}%"
+                      f"  ({c.casts_completed}/{c.casts_started} casts)")
+        lines.append(f"  GCD block rate: {c.gcd_block_rate * 100:.1f}%")
+        lines.append(f"  Overall DPS:    {cm.overall_dps:.1f}"
+                      f"  ({cm.total_damage} dmg / {cm.total_attacks} attacks)")
+        lines.append(f"  Kills:          {cm.kills}")
         lines.append("")
 
     lines.append(f"Connected Players: {report.connected_players}")
