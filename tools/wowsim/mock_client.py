@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 import random
+import threading
 import time
 
 from wowsim.models import ClientConfig, ClientResult, SpawnResult
@@ -169,11 +170,20 @@ class MockGameClient:
         await self._writer.drain()
         self._actions_sent += 1
 
-    async def run(self, config: ClientConfig) -> ClientResult:
+    async def run(
+        self,
+        config: ClientConfig,
+        stop_event: threading.Event | None = None,
+    ) -> ClientResult:
         """Run the client loop for the configured duration.
 
         Connects (if not already connected), sends actions at the
         configured rate, then disconnects. Returns a ClientResult.
+
+        Args:
+            config: Client configuration (host, port, rate, duration).
+            stop_event: Optional threading.Event checked each iteration;
+                when set, the loop exits early for graceful shutdown.
         """
         start = time.monotonic()
         try:
@@ -182,6 +192,8 @@ class MockGameClient:
             interval = 1.0 / config.actions_per_second
             deadline = start + config.duration_seconds
             while time.monotonic() < deadline:
+                if stop_event is not None and stop_event.is_set():
+                    break
                 await self.send_action()
                 remaining = deadline - time.monotonic()
                 if remaining > 0:
@@ -210,11 +222,15 @@ class MockGameClient:
 # ---------------------------------------------------------------------------
 
 
-async def _run_one(client_id: int, config: ClientConfig) -> ClientResult:
+async def _run_one(
+    client_id: int,
+    config: ClientConfig,
+    stop_event: threading.Event | None = None,
+) -> ClientResult:
     """Run a single mock client, capturing all failures."""
     client = MockGameClient(client_id=client_id, host=config.host, port=config.port)
     try:
-        return await client.run(config)
+        return await client.run(config, stop_event=stop_event)
     except Exception as exc:
         return ClientResult(
             client_id=client_id,
@@ -225,15 +241,25 @@ async def _run_one(client_id: int, config: ClientConfig) -> ClientResult:
         )
 
 
-async def spawn_clients(config: ClientConfig, count: int) -> SpawnResult:
+async def spawn_clients(
+    config: ClientConfig,
+    count: int,
+    stop_event: threading.Event | None = None,
+) -> SpawnResult:
     """Spawn N concurrent mock clients and collect results.
 
     Each client runs independently via asyncio.gather, connecting to
     the server specified in config and generating traffic for the
     configured duration.
+
+    Args:
+        config: Client configuration.
+        count: Number of clients to spawn.
+        stop_event: Optional threading.Event; when set, all clients
+            exit their loops early for graceful shutdown.
     """
     start = time.monotonic()
-    tasks = [_run_one(i, config) for i in range(count)]
+    tasks = [_run_one(i, config, stop_event=stop_event) for i in range(count)]
     results = await asyncio.gather(*tasks)
     elapsed = time.monotonic() - start
 
@@ -250,9 +276,13 @@ async def spawn_clients(config: ClientConfig, count: int) -> SpawnResult:
     )
 
 
-def run_spawn(config: ClientConfig, count: int) -> SpawnResult:
+def run_spawn(
+    config: ClientConfig,
+    count: int,
+    stop_event: threading.Event | None = None,
+) -> SpawnResult:
     """Synchronous wrapper around spawn_clients for CLI use."""
-    return asyncio.run(spawn_clients(config, count))
+    return asyncio.run(spawn_clients(config, count, stop_event=stop_event))
 
 
 # ---------------------------------------------------------------------------
