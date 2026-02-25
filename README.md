@@ -351,7 +351,9 @@ The server emits structured JSONL telemetry to `telemetry.jsonl`. Every line is 
 
 ## Project Status
 
-Phase 2 complete — all success criteria met:
+Phase 2 complete. Phase 3 (Game Mechanics Visibility) in progress.
+
+**Phase 2** — all original success criteria met:
 
 - Server handles 50+ concurrent mock players without tick rate degradation
 - All 8 fault scenarios produce detectable telemetry signatures
@@ -359,3 +361,10 @@ Phase 2 complete — all success criteria met:
 - Full demo walkthrough runs end-to-end in ~70 seconds
 - All tests pass in CI (GitHub Actions)
 - Documentation is complete and accurate
+
+**Phase 3** — closing the game mechanics gap:
+
+- [ ] TCP event parsing — mock client traffic drives live game mechanics
+- [ ] Game-mechanic telemetry in tooling — cast rates, DPS, GCD blocks visible
+- [ ] Demo narrative evolution — WoW-aware SRE story
+- [ ] Dashboard polish — game mechanic panels, updated screenshots
