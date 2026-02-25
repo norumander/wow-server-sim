@@ -16,6 +16,7 @@ from wowsim.log_parser import (
     detect_anomalies,
     filter_entries,
     format_anomalies,
+    format_game_mechanics,
     format_summary,
     parse_file,
     parse_stream,
@@ -241,6 +242,7 @@ def list_faults(ctx: click.Context) -> None:
     "--message", "message_filter", default=None, help="Filter by message substring."
 )
 @click.option("--anomalies", is_flag=True, help="Show detected anomalies only.")
+@click.option("--game-mechanics", is_flag=True, help="Show game mechanic stats (cast/combat/DPS).")
 @click.option(
     "--format",
     "output_format",
@@ -254,6 +256,7 @@ def parse_logs(
     component_filter: str | None,
     message_filter: str | None,
     anomalies: bool,
+    game_mechanics: bool,
     output_format: str,
 ) -> None:
     """Parse and analyze server telemetry logs.
@@ -281,6 +284,11 @@ def parse_logs(
     if output_format == "json":
         result = ParseResult(entries=entries, summary=summary, anomalies=detected)
         click.echo(result.model_dump_json(indent=2))
+    elif game_mechanics:
+        from wowsim.game_metrics import aggregate_game_mechanics
+
+        gm_summary = aggregate_game_mechanics(entries)
+        click.echo(format_game_mechanics(gm_summary))
     elif anomalies:
         click.echo(format_anomalies(detected))
     else:

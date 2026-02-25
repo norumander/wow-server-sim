@@ -12,7 +12,7 @@ from typing import TextIO
 
 from pydantic import ValidationError
 
-from wowsim.models import Anomaly, LogSummary, TelemetryEntry
+from wowsim.models import Anomaly, GameMechanicSummary, LogSummary, TelemetryEntry
 
 # --- Anomaly detection thresholds ---
 DEFAULT_TICK_DURATION_WARN_MS = 60.0
@@ -295,6 +295,46 @@ def format_anomalies(anomalies: list[Anomaly]) -> str:
         severity_tag = "CRITICAL" if a.severity == "critical" else "WARNING"
         lines.append(f"  [{severity_tag}] {a.type}: {a.message}")
         lines.append(f"           at {a.timestamp.isoformat()}")
+    return "\n".join(lines)
+
+
+def format_game_mechanics(summary: GameMechanicSummary) -> str:
+    """Format a GameMechanicSummary as a human-readable report."""
+    c = summary.cast_metrics
+    cm = summary.combat_metrics
+    lines = ["Game Mechanics", "=" * 40]
+
+    lines.append("")
+    lines.append("  Spell Casting:")
+    lines.append(f"    Casts started:    {c.casts_started}")
+    lines.append(f"    Casts completed:  {c.casts_completed}")
+    lines.append(f"    Casts interrupted:{c.casts_interrupted:>5}")
+    lines.append(f"    GCD blocked:      {c.gcd_blocked}")
+    lines.append(f"    Success rate:     {c.cast_success_rate * 100:.1f}%")
+    lines.append(f"    GCD block rate:   {c.gcd_block_rate * 100:.1f}%")
+    lines.append(f"    Cast rate:        {c.cast_rate_per_sec:.2f}/s")
+
+    lines.append("")
+    lines.append("  Combat:")
+    lines.append(f"    Total damage:     {cm.total_damage}")
+    lines.append(f"    Total attacks:    {cm.total_attacks}")
+    lines.append(f"    Kills:            {cm.kills}")
+    lines.append(f"    Active entities:  {cm.active_entities}")
+    lines.append(f"    Overall DPS:      {cm.overall_dps:.1f}")
+
+    if summary.top_damage_dealers:
+        lines.append("")
+        lines.append("  Top Damage Dealers:")
+        for i, dealer in enumerate(summary.top_damage_dealers, 1):
+            lines.append(
+                f"    #{i} Entity {dealer.entity_id:<6}"
+                f" {dealer.total_damage:>8} dmg"
+                f"  {dealer.dps:.1f} DPS"
+                f"  ({dealer.attack_count} attacks)"
+            )
+
+    lines.append("")
+    lines.append(f"  Duration: {summary.duration_seconds:.1f}s")
     return "\n".join(lines)
 
 
