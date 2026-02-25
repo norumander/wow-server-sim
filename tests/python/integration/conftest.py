@@ -115,6 +115,65 @@ def make_combat_error_line(detail: str, ts: str) -> str:
     )
 
 
+def make_cast_started_line(session_id: int, spell_id: int, ts: str) -> str:
+    """Build a spellcast 'Cast started' event line."""
+    return _entry(
+        "event",
+        "spellcast",
+        "Cast started",
+        {"session_id": session_id, "spell_id": spell_id, "cast_time_ticks": 20, "instant": False},
+        ts,
+    )
+
+
+def make_cast_completed_line(session_id: int, spell_id: int, ts: str) -> str:
+    """Build a spellcast 'Cast completed' event line."""
+    return _entry(
+        "event",
+        "spellcast",
+        "Cast completed",
+        {"session_id": session_id, "spell_id": spell_id},
+        ts,
+    )
+
+
+def make_cast_interrupted_line(
+    session_id: int, spell_id: int, reason: str, ts: str
+) -> str:
+    """Build a spellcast 'Cast interrupted' event line."""
+    return _entry(
+        "event",
+        "spellcast",
+        "Cast interrupted",
+        {"session_id": session_id, "spell_id": spell_id, "reason": reason},
+        ts,
+    )
+
+
+def make_gcd_blocked_line(session_id: int, spell_id: int, ts: str) -> str:
+    """Build a spellcast 'Cast blocked by GCD' event line."""
+    return _entry(
+        "event",
+        "spellcast",
+        "Cast blocked by GCD",
+        {"session_id": session_id, "spell_id": spell_id},
+        ts,
+    )
+
+
+def make_damage_dealt_line(
+    attacker_id: int, target_id: int, damage: int, ts: str
+) -> str:
+    """Build a combat 'Damage dealt' event line."""
+    return _entry(
+        "event",
+        "combat",
+        "Damage dealt",
+        {"attacker_id": attacker_id, "target_id": target_id, "actual_damage": damage, "damage_type": "physical"},
+        ts,
+    )
+
+
 def write_log(tmp_path: Path, filename: str, lines: list[str]) -> Path:
     """Write lines to a JSONL file and return the path."""
     path = tmp_path / filename
@@ -270,3 +329,101 @@ def fifty_player_log(tmp_path: Path) -> Path:
     lines.append(make_zone_tick_line(3, 15, 2.8, _ts(1220)))
 
     return write_log(tmp_path, "fifty_player.jsonl", lines)
+
+
+@pytest.fixture()
+def baseline_game_mechanic_log(tmp_path: Path) -> Path:
+    """Healthy game operation with game-mechanic telemetry.
+
+    20 normal ticks, 3 connections, 10 cast starts, 8 completed,
+    1 interrupted, 1 GCD blocked, 5 damage dealt events.
+    Result: ~80% cast success, ~9% GCD block → healthy.
+    """
+    lines: list[str] = []
+
+    # 20 normal ticks (3-5ms, no overrun)
+    for i in range(1, 21):
+        lines.append(make_tick_line(i, 3.0 + (i % 3) * 0.5, False, _ts((i - 1) * 50)))
+
+    # 3 connections
+    for sid in range(1, 4):
+        lines.append(make_connection_line(sid, _ts(1000 + sid * 10)))
+
+    # 10 cast starts across sessions 1-3
+    for i in range(10):
+        sid = (i % 3) + 1
+        lines.append(make_cast_started_line(sid, 10 + i, _ts(1100 + i * 50)))
+
+    # 8 cast completions (80% success)
+    for i in range(8):
+        sid = (i % 3) + 1
+        lines.append(make_cast_completed_line(sid, 10 + i, _ts(1600 + i * 50)))
+
+    # 1 interrupted
+    lines.append(make_cast_interrupted_line(2, 18, "movement", _ts(2000)))
+
+    # 1 GCD blocked
+    lines.append(make_gcd_blocked_line(3, 19, _ts(2050)))
+
+    # 5 damage dealt
+    for i in range(5):
+        lines.append(make_damage_dealt_line(
+            (i % 2) + 1, 100, 200 + i * 50, _ts(2100 + i * 50),
+        ))
+
+    return write_log(tmp_path, "baseline_game_mechanic.jsonl", lines)
+
+
+@pytest.fixture()
+def fault_degraded_game_mechanic_log(tmp_path: Path) -> Path:
+    """Latency spike degradation with game-mechanic telemetry.
+
+    10 normal ticks + 5 spike ticks (65-85ms, overrun=true — warning level,
+    below 100ms critical threshold), 3 connections, 10 cast starts,
+    3 completed, 7 interrupted (reason: tick_overrun), 5 GCD blocked,
+    2 damage dealt.
+    Result: 30% cast success, 33% GCD block, 33% overrun → degraded.
+    """
+    lines: list[str] = []
+
+    # 10 normal ticks
+    for i in range(1, 11):
+        lines.append(make_tick_line(i, 3.0, False, _ts((i - 1) * 50)))
+
+    # 5 spike ticks (65-85ms, overrun — warning level, not critical)
+    for i in range(5):
+        lines.append(make_tick_line(
+            11 + i, 65.0 + i * 5.0, True, _ts(500 + i * 50),
+        ))
+
+    # 3 connections
+    for sid in range(1, 4):
+        lines.append(make_connection_line(sid, _ts(800 + sid * 10)))
+
+    # 10 cast starts
+    for i in range(10):
+        sid = (i % 3) + 1
+        lines.append(make_cast_started_line(sid, 10 + i, _ts(900 + i * 50)))
+
+    # 3 completions (30% success — degraded)
+    for i in range(3):
+        sid = (i % 3) + 1
+        lines.append(make_cast_completed_line(sid, 10 + i, _ts(1400 + i * 50)))
+
+    # 7 interrupted (reason: tick_overrun — fault-induced)
+    for i in range(7):
+        sid = (i % 3) + 1
+        lines.append(make_cast_interrupted_line(
+            sid, 13 + i, "tick_overrun", _ts(1550 + i * 50),
+        ))
+
+    # 5 GCD blocked (high GCD block rate under stress)
+    for i in range(5):
+        sid = (i % 3) + 1
+        lines.append(make_gcd_blocked_line(sid, 20 + i, _ts(1900 + i * 50)))
+
+    # 2 damage dealt (reduced combat activity)
+    lines.append(make_damage_dealt_line(1, 100, 300, _ts(2200)))
+    lines.append(make_damage_dealt_line(2, 100, 150, _ts(2250)))
+
+    return write_log(tmp_path, "fault_degraded_game_mechanic.jsonl", lines)
