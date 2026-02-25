@@ -13,6 +13,7 @@ add_executable(unit_tests
     unit/test_fault_injection.cpp
     unit/test_control_channel.cpp
     unit/test_session_event_queue.cpp
+    unit/test_event_parser.cpp
     ${CMAKE_SOURCE_DIR}/src/server/telemetry/logger.cpp
     ${CMAKE_SOURCE_DIR}/src/server/game_loop.cpp
     ${CMAKE_SOURCE_DIR}/src/server/session.cpp
@@ -28,6 +29,7 @@ add_executable(unit_tests
     ${CMAKE_SOURCE_DIR}/src/server/world/zone_manager.cpp
     ${CMAKE_SOURCE_DIR}/src/server/fault/injector.cpp
     ${CMAKE_SOURCE_DIR}/src/server/fault/scenarios.cpp
+    ${CMAKE_SOURCE_DIR}/src/server/event_parser.cpp
     ${CMAKE_SOURCE_DIR}/src/server/session_event_queue.cpp
     ${CMAKE_SOURCE_DIR}/src/control/control_channel.cpp
 )
