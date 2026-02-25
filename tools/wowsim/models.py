@@ -151,6 +151,52 @@ class HealthReport(BaseModel):
     active_faults: list[FaultInfo] = []
     error_count: int = 0
     uptime_ticks: int = 0
+    game_mechanics: "GameMechanicSummary | None" = None
+
+
+# ---------------------------------------------------------------------------
+# Game Mechanic Models
+# ---------------------------------------------------------------------------
+
+
+class CastMetrics(BaseModel):
+    """Aggregate spell-casting statistics from telemetry."""
+
+    casts_started: int
+    casts_completed: int
+    casts_interrupted: int
+    gcd_blocked: int
+    cast_success_rate: float
+    gcd_block_rate: float
+    cast_rate_per_sec: float
+
+
+class EntityDPS(BaseModel):
+    """Per-entity damage output statistics."""
+
+    entity_id: int
+    total_damage: int
+    dps: float
+    attack_count: int
+
+
+class CombatMetrics(BaseModel):
+    """Aggregate combat statistics from telemetry."""
+
+    total_damage: int
+    total_attacks: int
+    kills: int
+    active_entities: int
+    overall_dps: float
+
+
+class GameMechanicSummary(BaseModel):
+    """Combined game-mechanic telemetry summary."""
+
+    cast_metrics: CastMetrics
+    combat_metrics: CombatMetrics
+    top_damage_dealers: list[EntityDPS]
+    duration_seconds: float
 
 
 # ---------------------------------------------------------------------------
