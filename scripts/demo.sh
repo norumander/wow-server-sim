@@ -1,13 +1,18 @@
 #!/usr/bin/env bash
 # demo.sh — Narrated walkthrough of the WoW Server Simulator reliability lifecycle.
 #
-# Demonstrates the full detect → diagnose → fix → deploy cycle in ~70 seconds:
-#   Phase 1: Baseline — healthy server with player traffic
+# Demonstrates the full WoW-aware SRE lifecycle in ~90 seconds:
+#   Phase 1: Baseline — healthy server with game activity
 #   Phase 2: Break It — inject a latency spike fault
-#   Phase 3: Diagnose — detect anomalies and identify root cause
-#   Phase 4: Fix It — deactivate the fault, verify recovery
-#   Phase 5: Pipeline — automated canary deployment with rollback
-#   Phase 6: Summary — final health check and lifecycle recap
+#   Phase 3: Game Impact — measure player-visible degradation
+#   Phase 4: Diagnose — detect anomalies and identify root cause
+#   Phase 5: Fix It — deactivate the fault, verify recovery
+#   Phase 6: Pipeline — automated canary deployment with rollback
+#   Phase 7: Summary — final health check and lifecycle recap
+#
+# The key insight: infrastructure reliability IS game reliability.
+# Every tick overrun is a failed spell cast. Every latency spike is a
+# dead player who pressed the right button at the right time.
 #
 # Usage:
 #   bash scripts/demo.sh
@@ -118,21 +123,22 @@ start_server() {
 # ---------------------------------------------------------------------------
 banner() {
     echo -e "${BOLD}${CYAN}"
-    echo "  ╔══════════════════════════════════════════════════════╗"
-    echo "  ║     WoW Server Simulator — Reliability Demo         ║"
-    echo "  ║     detect → diagnose → fix → deploy                ║"
-    echo "  ╚══════════════════════════════════════════════════════╝"
+    echo "  ╔══════════════════════════════════════════════════════════════╗"
+    echo "  ║     WoW Server Simulator — Reliability Demo                 ║"
+    echo "  ║     baseline → break → game impact → diagnose → fix → deploy║"
+    echo "  ╚══════════════════════════════════════════════════════════════╝"
     echo -e "${RESET}"
-    narrate "This demo walks through the full server reliability lifecycle."
-    narrate "Total runtime: ~70 seconds."
+    narrate "This demo walks through the full WoW-aware SRE lifecycle."
+    narrate "Infrastructure reliability IS game reliability."
+    narrate "Total runtime: ~90 seconds."
     echo ""
 }
 
 # ---------------------------------------------------------------------------
-# Phase 1: Baseline — healthy server with player traffic
+# Phase 1: Baseline — healthy server with game activity
 # ---------------------------------------------------------------------------
 phase_baseline() {
-    header "Phase 1: Baseline — Healthy Server"
+    header "Phase 1: Baseline — Healthy Server with Game Activity"
 
     narrate "Spawning 5 simulated players for 5 seconds to generate game traffic."
     narrate "Traffic mix: 50% movement, 30% spell casts, 20% combat actions."
@@ -145,7 +151,13 @@ phase_baseline() {
     run_cmd "wowsim health --log-file '$TELEMETRY_FILE' --no-faults"
     echo ""
 
-    success "Baseline established: server is healthy under normal load."
+    narrate "Examining game-mechanic telemetry: cast rates, DPS, GCD blocking."
+    echo ""
+    run_cmd "wowsim parse-logs '$TELEMETRY_FILE' --game-mechanics"
+    echo ""
+
+    success "Baseline established: cast success rate ~80%, DPS active, GCD block rate ~10%."
+    narrate "Players are having fun — spells land, damage flows, the world feels responsive."
 }
 
 # ---------------------------------------------------------------------------
@@ -156,6 +168,7 @@ phase_break() {
 
     narrate "Injecting F1 (latency-spike): adds 200ms delay to every tick."
     narrate "The server's tick budget is 50ms, so 200ms is a 4x overrun."
+    narrate "At 200ms/tick, the server can't finish spell casts on time."
     echo ""
     run_cmd "wowsim inject-fault activate latency-spike --delay-ms 200"
     echo ""
@@ -172,10 +185,33 @@ phase_break() {
 }
 
 # ---------------------------------------------------------------------------
-# Phase 3: Diagnose — detect anomalies and root cause
+# Phase 3: Game Impact — measure player-visible degradation (NEW)
+# ---------------------------------------------------------------------------
+phase_game_impact() {
+    header "Phase 3: Game Impact — Player-Visible Degradation"
+
+    narrate "This is what separates WoW SRE from generic infrastructure monitoring."
+    narrate "A latency spike isn't just a number — it's a player experience."
+    echo ""
+
+    narrate "Examining game-mechanic telemetry under fault conditions:"
+    echo ""
+    run_cmd "wowsim parse-logs '$TELEMETRY_FILE' --game-mechanics"
+    echo ""
+
+    warn "Cast success rate has dropped — spells are failing mid-cast."
+    warn "GCD is blocking more attempts — the server can't keep up."
+    warn "DPS has fallen — combat feels sluggish and unresponsive."
+    echo ""
+    narrate "Players would be reporting lag and failed abilities."
+    narrate "Every tick overrun is a Fireball that fizzled, a heal that never landed."
+}
+
+# ---------------------------------------------------------------------------
+# Phase 4: Diagnose — detect anomalies and root cause
 # ---------------------------------------------------------------------------
 phase_diagnose() {
-    header "Phase 3: Diagnose — Detect Anomalies"
+    header "Phase 4: Diagnose — Detect Anomalies"
 
     narrate "Scanning telemetry for anomalies (latency spikes, errors, crashes)."
     echo ""
@@ -188,13 +224,15 @@ phase_diagnose() {
     echo ""
 
     success "Root cause identified: latency-spike fault is active."
+    narrate "The latency anomaly we see is what's causing the spell cast failures."
+    narrate "Infrastructure signal → game impact: the causal chain is clear."
 }
 
 # ---------------------------------------------------------------------------
-# Phase 4: Fix It — deactivate fault and verify recovery
+# Phase 5: Fix It — deactivate fault and verify recovery
 # ---------------------------------------------------------------------------
 phase_fix() {
-    header "Phase 4: Fix It — Deactivate and Recover"
+    header "Phase 5: Fix It — Deactivate and Recover"
 
     narrate "Deactivating the latency-spike fault (manual remediation)."
     echo ""
@@ -210,14 +248,20 @@ phase_fix() {
     run_cmd "wowsim health --log-file '$TELEMETRY_FILE' --no-faults"
     echo ""
 
-    success "Server recovered after fault deactivation."
+    narrate "Verifying game mechanics are recovering:"
+    echo ""
+    run_cmd "wowsim parse-logs '$TELEMETRY_FILE' --game-mechanics"
+    echo ""
+
+    success "Server recovered: cast success rate climbing, DPS back to baseline."
+    narrate "Players stop complaining — spells land again, combat feels snappy."
 }
 
 # ---------------------------------------------------------------------------
-# Phase 5: Pipeline — automated canary deployment with rollback
+# Phase 6: Pipeline — automated canary deployment with rollback
 # ---------------------------------------------------------------------------
 phase_pipeline() {
-    header "Phase 5: Pipeline — Automated Canary Deployment"
+    header "Phase 6: Pipeline — Automated Canary Deployment"
 
     narrate "Running a hotfix deployment pipeline that:"
     narrate "  1. Checks build preconditions (server reachable, not critical)"
@@ -233,31 +277,34 @@ phase_pipeline() {
 }
 
 # ---------------------------------------------------------------------------
-# Phase 6: Summary — final health check and lifecycle recap
+# Phase 7: Summary — final health check and lifecycle recap
 # ---------------------------------------------------------------------------
 phase_summary() {
-    header "Phase 6: Summary"
+    header "Phase 7: Summary"
 
     narrate "Waiting 3 seconds for post-rollback stabilization..."
     sleep 3
 
-    narrate "Final health check:"
+    narrate "Final health check with game mechanics:"
     echo ""
     run_cmd "wowsim health --log-file '$TELEMETRY_FILE' --no-faults"
     echo ""
 
     echo -e "${BOLD}${GREEN}"
-    echo "  Reliability Lifecycle Complete"
-    echo "  ───────────────────────────────"
+    echo "  WoW-Aware SRE Lifecycle Complete"
+    echo "  ──────────────────────────────────"
     echo -e "${RESET}"
-    echo "  1. Baseline   — established healthy server metrics"
-    echo "  2. Break       — injected latency spike (F1), triggered CRITICAL"
-    echo "  3. Diagnose    — detected anomalies, identified root cause"
-    echo "  4. Fix         — manual remediation, confirmed recovery"
-    echo "  5. Pipeline    — automated canary detected fault, rolled back"
-    echo "  6. Summary     — server back to stable state"
+    echo "  1. Baseline     — healthy server, cast success ~80%, DPS flowing"
+    echo "  2. Break         — injected latency spike (F1), triggered CRITICAL"
+    echo "  3. Game Impact   — cast success dropped, GCD blocking, DPS fell"
+    echo "  4. Diagnose      — detected anomalies, traced to latency fault"
+    echo "  5. Fix           — manual remediation, game mechanics recovered"
+    echo "  6. Pipeline      — automated canary detected fault, rolled back"
+    echo "  7. Summary       — server back to stable state"
     echo ""
-    narrate "All phases demonstrated with real server traffic and telemetry."
+    narrate "Infrastructure reliability is game reliability."
+    narrate "Every tick overrun is a failed spell cast. Every spike is a dead player."
+    echo ""
     narrate "Tools used: spawn-clients, health, parse-logs, inject-fault, deploy"
     echo ""
 }
@@ -270,6 +317,7 @@ main() {
     start_server
     phase_baseline
     phase_break
+    phase_game_impact
     phase_diagnose
     phase_fix
     phase_pipeline
