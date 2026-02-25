@@ -7,6 +7,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- TCP event parsing pipeline (Phase 3, Milestone 1): Connection reads newline-delimited JSON from clients via `asio::async_read_until('\n')`, parses via `EventParser`, and pushes `GameEvent` objects into a shared intake `EventQueue`. Game loop drains intake queue each tick and routes events to per-zone queues via `ZoneManager::route_events()`. Malformed JSON is logged and dropped; unknown event types are silently discarded. Mock client traffic now reaches the game mechanics pipeline end-to-end
+- `EventParser` class (`src/server/event_parser.h`): stateless JSON-to-GameEvent deserializer supporting movement, spell_cast (CAST_START/INTERRUPT), and combat (ATTACK with PHYSICAL/MAGICAL damage) events. Returns nullptr for invalid input — never throws
+- `GameServer::set_event_queue()`: propagates shared `EventQueue` pointer to new Connections for game event ingestion
+- 25 new GoogleTest cases: EventParser unit tests (20) and GameServer event parsing integration tests (5). Total: 292 C++ tests passing
 - Docker-based GIF recording pipeline: `Dockerfile.recording` extends the runtime image with asciinema, agg, and gifsicle. Three recording scripts (`record-gifs.sh`, `record-demo-full.sh`, `record-fault-cascade.sh`) produce `demo-full.gif` (full 70s demo at 3x speed) and `fault-cascade.gif` (F5 cascading zone failure at 2x speed). Docker Compose `record` profile: `docker compose --profile record run record` builds and runs both recordings, outputting GIFs directly to `docs/assets/` via volume mount
 
 ### Fixed

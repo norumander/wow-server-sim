@@ -600,3 +600,20 @@ Server stays on standard ports (8080/8081), so separate terminals can still run 
 - Suggestion bar creates a self-documenting walkthrough without narration text
 - 40 new pytest cases (total 158 non-integration), zero regressions
 - Separate terminals can still interact via existing CLI commands during the demo
+
+## ADR-030: TCP Event Parsing — ControlChannel Pattern Reuse
+
+**Date:** 2026-02-25
+**Status:** Accepted
+
+**Context:** The server implements rich WoW game mechanics (movement, spellcast, combat) that are fully unit-tested but invisible in the live demo. Connection::do_read() discards all TCP data — mock clients send well-formed newline-delimited JSON that matches the C++ event types exactly, but nothing parses it. The entire downstream pipeline (EventQueue, ZoneManager::route_events(), per-zone tick with processors) is wired and working. The missing piece is: parse bytes on the wire into GameEvent objects and push them into an intake queue.
+
+**Decision:** Reuse the ControlChannel read pattern (asio::streambuf + async_read_until('\n') + JSON parse) in Connection::do_read(). Extract JSON-to-GameEvent deserialization into a standalone EventParser class (static parse method, no Asio dependency) that returns nullptr on invalid input. Connection calls EventParser and pushes valid events into a shared EventQueue. Main.cpp creates the intake queue, wires it through GameServer to new Connections, and drains it each tick before zone ticks.
+
+**Consequences:**
+- Mock client traffic now reaches game mechanics end-to-end — movement, spellcast, and combat events are processed by zones
+- EventParser is trivially testable (20 unit tests) with no network dependency
+- ControlChannel pattern proven reliable — same streambuf + line-buffered + JSON parse strategy
+- Malformed JSON logged and dropped, never disconnects client or crashes server
+- Intake queue follows the existing two-stage model (intake → route_events → per-zone queues)
+- 25 new tests (20 EventParser + 5 GameServer), 292 total, 0 regressions

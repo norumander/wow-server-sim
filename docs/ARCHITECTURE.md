@@ -34,10 +34,16 @@ Detailed Mermaid diagrams are available in [`docs/diagrams/`](diagrams/). GitHub
 
 ### Connection (`src/server/connection.h`)
 - **Implementation:** `wow::Connection` bridges the network layer (TCP socket) and the game layer (Session). Each Connection owns a `Session` by value (starts in CONNECTING state) and uses `enable_shared_from_this` for safe async callback capture
-- **Disconnect detection:** Async read loop via `async_read_some` — received data is discarded (no protocol parsing at this stage). On EOF/error, transitions session via `DISCONNECT` event (CONNECTING → DESTROYED) and invokes the disconnect callback
+- **Line-buffered JSON parsing:** Async read loop via `asio::async_read_until('\n')` with `asio::streambuf` accumulates newline-delimited JSON lines from clients. Each line is parsed via `nlohmann::json::parse()` → `EventParser::parse()` → pushed to shared `EventQueue`. Same pattern as ControlChannel. Malformed JSON is logged and dropped (never disconnects client). Unknown event types are silently discarded
+- **Disconnect detection:** On EOF/error, transitions session via `DISCONNECT` event (CONNECTING → DESTROYED) and invokes the disconnect callback
 - **shared_from_this ordering:** `do_accept()` creates `make_shared<Connection>`, stores it in the connection map, THEN calls `conn->start()`. This ensures `shared_from_this()` works inside the async read loop
-- **Scope boundary:** No message framing, no protocol parsing, no game logic. The read loop exists solely for disconnect detection
-- **Test strategy:** 23 GoogleTest cases covering construction (3), start/stop lifecycle (5), connection acceptance (4), disconnect handling (4), telemetry emission (4), and edge cases (3). All tests use port 0 with a `wait_for` polling helper (10ms intervals, 500ms default timeout)
+- **Test strategy:** 28 GoogleTest cases covering construction (3), start/stop lifecycle (5), connection acceptance (4), disconnect handling (4), telemetry emission (4), edge cases (3), and TCP event parsing (5). All tests use port 0 with a `wait_for` polling helper (10ms intervals, 500ms default timeout)
+
+### EventParser (`src/server/event_parser.h`)
+- **Implementation:** `wow::EventParser` — stateless JSON-to-GameEvent deserializer. Static `parse()` method takes a `nlohmann::json` object and returns `std::unique_ptr<GameEvent>` (nullptr on failure). No Asio dependency — pure deserialization logic, trivially unit-testable
+- **Supported types:** `"movement"` → `MovementEvent` (requires `position.x/y/z`), `"spell_cast"` → `SpellCastEvent` (requires `action`; `CAST_START` needs `spell_id`/`cast_time_ticks`, `INTERRUPT` needs nothing), `"combat"` → `CombatEvent` (requires `action`, `target_session_id`, `base_damage`, `damage_type`)
+- **Error handling:** Missing top-level `type` or `session_id` → nullptr. Unknown type string → nullptr. Missing required fields per event type → nullptr. Unknown enum string values → nullptr. All nlohmann::json exceptions caught and converted to nullptr return
+- **Test strategy:** 20 GoogleTest cases covering valid parsing (5), unknown/missing type (2), missing session_id (1), missing fields per type (7), and unknown enum values (5)
 
 ### Game Loop Thread (`src/server/game_loop.h`)
 - **Implementation:** `wow::GameLoop` class with configurable tick rate via `GameLoopConfig` (default 20 Hz / 50ms, matching WoW's actual server tick rate)
@@ -343,7 +349,7 @@ See the [Session State Machine Diagram](diagrams/session-state-machine.md) for a
   - `CommandQueue` — control commands from control channel to game thread (ADR-017)
   - `SessionEventQueue` — session connect/disconnect from network to game thread (ADR-022)
 - Ownership boundary: Game thread owns all game state (FaultRegistry, ZoneManager, zone entities). Network threads only enqueue.
-- Tick ordering: drain session events → process control commands → tick ambient faults → tick all zones
+- Tick ordering: drain session events → drain game events & route to zones → process control commands → tick ambient faults → tick all zones
 
 **Polish (Thread-per-Zone):**
 - Each zone gets its own thread and tick loop
