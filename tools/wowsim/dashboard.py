@@ -351,11 +351,13 @@ try:
                     f"{z.avg_tick_duration_ms:.1f}",
                 )
 
-            # Event log
+            # Event log — filter out noisy tick metrics (already in tick panel)
             if new_entries:
                 self._last_entry_ts = new_ts
                 log = self.query_one("#event-log", RichLog)
                 for entry in new_entries:
+                    if entry.type == "metric":
+                        continue
                     log.write(format_event_line(entry))
 
             # Track state for suggestion bar
@@ -539,9 +541,18 @@ try:
 
             def _log_results() -> None:
                 log = self.query_one("#event-log", RichLog)
-                log.write(f"--- Pipeline: {result.outcome.upper()} ---")
+                outcome = result.outcome.upper()
+                style = "bold green" if outcome == "PROMOTE" else "bold red"
+                log.write("")
+                log.write(f"[{style}]{'=' * 40}[/]")
+                log.write(f"[{style}]  PIPELINE: {outcome}[/]")
+                log.write(f"[{style}]{'=' * 40}[/]")
                 for stage in result.stages:
-                    log.write(format_stage_result(stage))
+                    icon = "[green]PASS[/]" if stage.passed else "[red]FAIL[/]"
+                    log.write(f"  {icon}  {stage.name} ({stage.duration_seconds:.1f}s)")
+                    if stage.detail:
+                        log.write(f"        {stage.detail}")
+                log.write("")
                 self._pipeline_ran = True
                 self._update_suggestion()
                 self.notify(f"Pipeline: {result.outcome}")
