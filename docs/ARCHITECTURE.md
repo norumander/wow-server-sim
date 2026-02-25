@@ -241,9 +241,10 @@ See the [Session State Machine Diagram](diagrams/session-state-machine.md) for a
   - `_detect_zone_crashes` — zone error entries with "Zone tick exception" message
   - `_detect_error_bursts` — sliding window counting errors within configurable time window (default: 5+ in 10s)
   - `_detect_unexpected_disconnects` — game_server "Client disconnected" events
-- **CLI:** `wowsim parse-logs <FILE>` with `--type`, `--component`, `--message`, `--anomalies`, and `--format json|text` options
-- **Output:** Human-readable summary/anomaly tables (default), or structured JSON via `ParseResult.model_dump_json()`
-- **Test strategy:** 20 pytest cases in 6 groups: model parsing (3), file/stream parsing (3), filtering (4), summary (3), anomaly detection (5), CLI integration (2)
+- **Game mechanics formatting:** `format_game_mechanics()` renders a `GameMechanicSummary` as a human-readable report showing cast metrics (success rate, GCD block rate, cast rate), combat stats (DPS, kills, active entities), and top damage dealers
+- **CLI:** `wowsim parse-logs <FILE>` with `--type`, `--component`, `--message`, `--anomalies`, `--game-mechanics`, and `--format json|text` options
+- **Output:** Human-readable summary/anomaly tables (default), game mechanic stats (`--game-mechanics`), or structured JSON via `ParseResult.model_dump_json()`
+- **Test strategy:** 25 pytest cases in 8 groups: model parsing (3), file/stream parsing (3), filtering (4), summary (3), anomaly detection (7), game mechanics formatting (2), CLI integration (3)
 
 ### Fault Trigger Client (`wowsim/fault_trigger.py`)
 - **Responsibility:** TCP client for the C++ control channel, enabling operators to activate/deactivate faults at runtime
@@ -257,6 +258,17 @@ See the [Session State Machine Diagram](diagrams/session-state-machine.md) for a
 - **Reuse:** Async `ControlClient` designed for direct use by the Textual dashboard (Step 17) without blocking the event loop
 - **Test strategy:** 20 pytest cases in 5 groups: models (3+2), duration parsing (2+3), client commands (4), error handling (3), CLI integration (3). Mock TCP server fixture in conftest.py (threading-based, ephemeral port, canned responses)
 
+### Game Metrics Aggregation (`wowsim/game_metrics.py`)
+- **Responsibility:** Shared pure-function module that computes game-mechanic aggregations from telemetry entries. No I/O — takes `list[TelemetryEntry]` and returns Pydantic models
+- **Cast metrics:** `aggregate_cast_metrics()` counts started/completed/interrupted/GCD-blocked casts. Computes cast success rate (completed/started), GCD block rate (blocked/(started+blocked)), and cast rate per second. All rates guard against division by zero
+- **Entity DPS:** `compute_entity_dps()` groups "Damage dealt" events by attacker_id, computes per-entity total damage, DPS, and attack count. Returns sorted descending by total_damage
+- **Combat metrics:** `aggregate_combat_metrics()` aggregates total damage, attacks, kills, active entities (distinct attacker IDs), and overall DPS
+- **Orchestrator:** `aggregate_game_mechanics()` calls all sub-aggregations with a shared duration (first-to-last timestamp), returns `GameMechanicSummary` with configurable `top_n` for damage dealer list
+- **Duration computation:** `_compute_duration_seconds()` computes seconds between first and last entry timestamps. Returns 0.0 for fewer than 2 entries
+- **Models:** `CastMetrics`, `EntityDPS`, `CombatMetrics`, `GameMechanicSummary` (Pydantic v2) in `wowsim.models`
+- **Consumers:** Used by `log_parser` (format_game_mechanics), `health_check` (build_health_report), and `dashboard` (_fetch_health_data)
+- **Test strategy:** 15 pytest cases in 2 groups: model construction and JSON round-trip (5), aggregation functions (10 — cast metrics, entity DPS, combat metrics, orchestrator with top_n and empty entries)
+
 ### Health Check Reporter (`wowsim/health_check.py`)
 - **Responsibility:** Aggregate server health from telemetry logs and present periodic health summaries
 - **Data source:** Reads JSONL telemetry log file (tail-based, last 500 lines by default). No C++ changes needed — all health data is already emitted by the server
@@ -264,14 +276,15 @@ See the [Session State Machine Diagram](diagrams/session-state-machine.md) for a
   - `compute_tick_health()` — extracts tick rate stats (avg/max/min duration, overrun count/percentage) from `game_loop` "Tick completed" metrics
   - `compute_zone_health()` — groups zone tick metrics and errors by zone_id, determines state (ACTIVE/CRASHED)
   - `estimate_player_count()` — net "Connection accepted" minus "Client disconnected" events
-  - `determine_status()` — three-tier evaluation: critical (critical anomalies or CRASHED zones), degraded (warnings, DEGRADED zones, >10% overruns), healthy (otherwise)
-- **Module reuse:** `log_parser.parse_line()` for entry parsing, `log_parser.detect_anomalies()` for anomaly detection, `fault_trigger.list_all_faults()` for active fault status (ADR-020)
+  - `determine_status()` — three-tier evaluation: critical (critical anomalies or CRASHED zones), degraded (warnings, DEGRADED zones, >10% overruns, game-mechanic signals), healthy (otherwise). Game-mechanic degradation triggers: GCD block rate > 50%, cast success rate < 50% (when casts > 0), zero combat+casts with connected players
+- **Module reuse:** `log_parser.parse_line()` for entry parsing, `log_parser.detect_anomalies()` for anomaly detection, `fault_trigger.list_all_faults()` for active fault status, `game_metrics.aggregate_game_mechanics()` for game-mechanic summary (ADR-020, ADR-031)
 - **I/O helpers:** `check_server_reachable()` TCP connect probe, `read_recent_entries()` tail-based log reader
 - **Orchestration:** `build_health_report()` composes all data sources into a `HealthReport` model. Designed for reuse by the dashboard (Step 17)
-- **Formatting:** `format_health_report()` produces human-readable multi-line output with status, tick rate, zones, players, faults, and anomalies
-- **Models:** `TickHealth`, `ZoneHealthSummary`, `HealthReport` (Pydantic v2) in `wowsim.models`. `HealthReport` composes existing `Anomaly` and `FaultInfo` models
+- **Game-mechanic integration:** `build_health_report()` calls `aggregate_game_mechanics()` and includes `GameMechanicSummary` in report. `determine_status()` evaluates game-mechanic degradation signals alongside infrastructure signals
+- **Formatting:** `format_health_report()` produces human-readable multi-line output with status, tick rate, zones, game mechanics (cast success, GCD block rate, DPS, kills), players, faults, and anomalies
+- **Models:** `TickHealth`, `ZoneHealthSummary`, `HealthReport` (Pydantic v2) in `wowsim.models`. `HealthReport` composes existing `Anomaly`, `FaultInfo`, and `GameMechanicSummary` models
 - **CLI:** `wowsim health --log-file <path>` with `--watch`/`--interval` for continuous monitoring, `--format json|text`, `--no-faults` to skip control channel, `--host`/`--port`/`--control-port` for server addresses
-- **Test strategy:** 20 pytest cases in 7 groups: health models (3), tick health computation (3), zone health and player count (3), status determination (3+2), server reachability (2), report building and formatting (2), CLI integration (2)
+- **Test strategy:** 25 pytest cases in 8 groups: health models (3), tick health computation (3), zone health and player count (3), status determination (3+2), game-mechanic health signals (4), server reachability (2), report building and formatting (2+1), CLI integration (2)
 
 ### Mock Client Spawner (`wowsim/mock_client.py`)
 - **Responsibility:** Spawn N concurrent simulated players that generate WoW-realistic game traffic for stress testing and load generation
@@ -287,12 +300,12 @@ See the [Session State Machine Diagram](diagrams/session-state-machine.md) for a
 ### Monitoring Dashboard (`wowsim/dashboard.py`)
 - **Responsibility:** Live TUI dashboard displaying server health metrics, zone status, fault control, and scrolling event log with auto-refresh
 - **Framework:** Textual 8.0 TUI framework with CSS-based layout (`dashboard.tcss`)
-- **Widget tree:** `WoWDashboardApp(App)` → Header, StatusBar (Static), Horizontal(TickMetricsPanel (Static) + ZoneTable (DataTable)), FaultControlPanel (Static), EventLog (RichLog), Footer
+- **Widget tree:** `WoWDashboardApp(App)` → Header, StatusBar (Static), Horizontal(TickMetricsPanel (Static) + GameMechanicsPanel (Static) + ZoneTable (DataTable)), FaultControlPanel (Static), EventLog (RichLog), Footer
 - **Data flow — dual strategy (ADR-023):**
   - Health refresh: `@work(thread=True)` runs sync functions from `health_check.py` and `log_parser.py` in a worker thread. `call_from_thread()` marshals results back for UI updates
   - Fault queries: `@work(exclusive=True)` runs async `ControlClient` directly on the Textual event loop
 - **Timestamp watermark:** `filter_new_entries()` tracks last-seen timestamp to append only new entries to the RichLog, preventing duplicates
-- **Pure formatting functions:** `format_status_bar`, `format_tick_panel`, `format_event_line`, `status_to_style`, `fault_action_label` — independently testable without Textual
+- **Pure formatting functions:** `format_status_bar`, `format_tick_panel`, `format_game_mechanics_panel`, `format_event_line`, `status_to_style`, `fault_action_label` — independently testable without Textual
 - **Key bindings:** `q` (quit), `r` (manual refresh), `a` (activate first inactive fault), `d` (deactivate first active fault), `x` (deactivate all)
 - **Configuration:** `DashboardConfig` (Pydantic v2) with log_file, host, port, control_port, refresh_interval
 - **CLI:** `wowsim dashboard --log-file <path> --host <host> --port <port> --control-port <port> --refresh <seconds>`

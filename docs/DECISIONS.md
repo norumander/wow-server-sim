@@ -601,6 +601,29 @@ Server stays on standard ports (8080/8081), so separate terminals can still run 
 - 40 new pytest cases (total 158 non-integration), zero regressions
 - Separate terminals can still interact via existing CLI commands during the demo
 
+## ADR-031: Game-Mechanic Telemetry — Shared Aggregation Module
+
+**Date:** 2026-02-25
+**Status:** Accepted
+
+**Context:** The C++ server emits rich game-mechanic telemetry (cast started/completed/interrupted/GCD-blocked, damage dealt, entity killed) but the Python tooling only processes infrastructure metrics (tick rate, zone state, connections). Game mechanics are invisible in the demo despite being fully functional end-to-end since Milestone 1. Three consumers need the same aggregation: log_parser (--game-mechanics flag), health_check (degradation signals), and dashboard (Game Mechanics panel).
+
+**Decision:**
+1. **Shared pure-function module** (`wowsim/game_metrics.py`) with no I/O dependencies. Four public functions: `aggregate_cast_metrics`, `compute_entity_dps`, `aggregate_combat_metrics`, `aggregate_game_mechanics` (orchestrator). All take `list[TelemetryEntry]` and return Pydantic models.
+2. **Rate definitions:** Cast success = completed/started (GCD blocks don't count as starts). GCD block rate = blocked/(started+blocked). Cast rate = started/duration. DPS = damage/duration. All guard against division by zero (return 0.0).
+3. **Health integration via optional params.** `determine_status()` gains `game_mechanics` and `connected_players` kwargs with defaults (None, 0) — backward-compatible. Three degradation triggers: GCD block rate > 50%, cast success < 50% when casts > 0, zero combat+casts with connected players.
+4. **Per-zone deferred.** Global aggregation is sufficient for Milestone 2. Per-zone columns (using zone_id from telemetry data fields) deferred to Milestone 4.
+
+**Consequences:**
+- Zero C++ changes — all telemetry already emitted at sufficient granularity
+- Single module consumed by three tools — no logic duplication
+- Pure functions are trivially testable (15 unit tests, zero network dependency)
+- Health status integrates game mechanics without breaking existing infrastructure-only health checks
+- Dashboard game-mechanics panel provides live visibility into cast/combat activity
+- Format functions in log_parser and dashboard follow existing pure-function-first patterns
+
+---
+
 ## ADR-030: TCP Event Parsing — ControlChannel Pattern Reuse
 
 **Date:** 2026-02-25

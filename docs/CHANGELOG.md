@@ -7,6 +7,15 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- Game-mechanic telemetry in Python tooling (Phase 3, Milestone 2): shared `game_metrics.py` aggregation module computes cast metrics (success rate, GCD block rate, cast rate/s), per-entity DPS, and combat metrics (total damage, kills, active entities) from telemetry entries. Pure functions, no I/O — consumed by log_parser, health_check, and dashboard
+- `CastMetrics`, `EntityDPS`, `CombatMetrics`, `GameMechanicSummary` Pydantic v2 models in `wowsim.models`. `HealthReport` gains optional `game_mechanics` field
+- `format_game_mechanics()` in `log_parser.py`: renders cast/combat stats and top damage dealers as human-readable text
+- `--game-mechanics` flag on `parse-logs` CLI command: shows game mechanic stats instead of default summary
+- Game-mechanic health signals in `health_check.py`: `determine_status()` triggers "degraded" on GCD block rate > 50%, cast success rate < 50%, or zero combat with connected players. `build_health_report()` includes `GameMechanicSummary`. `format_health_report()` renders Game Mechanics section
+- Game Mechanics panel in dashboard: `format_game_mechanics_panel()` pure function, `#game-panel` Static widget between tick-panel and zone-table, refreshed on each health data fetch. CSS rule in `dashboard.tcss`
+- `game_mechanic_entries` pytest fixture in `conftest.py` with 12 telemetry entries (3 cast started, 2 completed, 1 interrupted, 2 GCD blocked, 3 damage dealt, 1 entity killed)
+- 26 new pytest cases across 4 test files (test_game_metrics.py: 15, test_log_parser.py: 3, test_health_check.py: 5, test_dashboard.py: 3)
+
 - TCP event parsing pipeline (Phase 3, Milestone 1): Connection reads newline-delimited JSON from clients via `asio::async_read_until('\n')`, parses via `EventParser`, and pushes `GameEvent` objects into a shared intake `EventQueue`. Game loop drains intake queue each tick and routes events to per-zone queues via `ZoneManager::route_events()`. Malformed JSON is logged and dropped; unknown event types are silently discarded. Mock client traffic now reaches the game mechanics pipeline end-to-end
 - `EventParser` class (`src/server/event_parser.h`): stateless JSON-to-GameEvent deserializer supporting movement, spell_cast (CAST_START/INTERRUPT), and combat (ATTACK with PHYSICAL/MAGICAL damage) events. Returns nullptr for invalid input — never throws
 - `GameServer::set_event_queue()`: propagates shared `EventQueue` pointer to new Connections for game event ingestion
