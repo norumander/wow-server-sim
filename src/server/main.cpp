@@ -10,6 +10,7 @@
 #include "server/fault/scenarios.h"
 #include "server/game_loop.h"
 #include "server/game_server.h"
+#include "server/events/event_queue.h"
 #include "server/session_event_queue.h"
 #include "server/telemetry/logger.h"
 #include "server/world/entity.h"
@@ -116,9 +117,10 @@ int main(int argc, char* argv[])
     }
 
     // -----------------------------------------------------------------------
-    // 5. Session Event Queue — bridges network → game thread
+    // 5. Event Queues — bridge network → game thread
     // -----------------------------------------------------------------------
     wow::SessionEventQueue session_events;
+    wow::EventQueue event_intake;  // Parsed game events from TCP clients
 
     // -----------------------------------------------------------------------
     // 6. Control Channel — fault injection TCP server (port 8081)
@@ -139,6 +141,7 @@ int main(int argc, char* argv[])
     server_config.port = game_port;
     wow::GameServer game_server(server_config);
     game_server.set_session_event_queue(&session_events);
+    game_server.set_event_queue(&event_intake);
     game_server.start();
 
     wow::Logger::instance().event("server", "Game server started", {
@@ -179,13 +182,17 @@ int main(int argc, char* argv[])
             }
         }
 
-        // 2. Process control channel commands
+        // 2. Drain game events → route to per-zone queues
+        auto game_events = event_intake.drain();
+        zone_manager.route_events(game_events);
+
+        // 3. Process control channel commands
         control.process_pending_commands();
 
-        // 3. Tick ambient faults + duration tracking
+        // 4. Tick ambient faults + duration tracking
         fault_registry.on_tick(tick);
 
-        // 4. Tick all zones (pre_tick_hooks fire execute_pre_tick_faults)
+        // 5. Tick all zones (pre_tick_hooks fire execute_pre_tick_faults)
         zone_manager.tick_all(tick);
     });
 

@@ -125,6 +125,7 @@ void GameServer::do_accept()
             auto conn = std::make_shared<Connection>(
                 std::move(socket),
                 [this](uint64_t session_id) { on_disconnect(session_id); });
+            conn->set_event_queue(event_queue_);
 
             auto sid = conn->session_id();
             auto remote = conn->remote_endpoint_string();

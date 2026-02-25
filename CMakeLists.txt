@@ -65,6 +65,7 @@ add_executable(wow-server-sim
     src/server/game_loop.cpp
     src/server/game_server.cpp
     src/server/connection.cpp
+    src/server/event_parser.cpp
     src/server/session.cpp
     src/server/telemetry/logger.cpp
     src/server/events/event.cpp
