@@ -66,3 +66,16 @@ FaultPickerScreen {
     background: $surface;
     padding: 1;
 }
+
+DurationPickerScreen {
+    align: center middle;
+}
+
+#duration-options {
+    width: 50;
+    height: auto;
+    max-height: 10;
+    border: solid $primary;
+    background: $surface;
+    padding: 1;
+}

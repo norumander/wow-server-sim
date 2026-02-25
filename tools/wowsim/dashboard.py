@@ -71,13 +71,23 @@ def status_to_style(status: str) -> str:
 
 
 def compute_suggestion(
-    players: int, active_faults: int, status: str, pipeline_ran: bool
+    players: int,
+    active_faults: int,
+    status: str,
+    pipeline_ran: bool,
+    spawn_active: bool = False,
 ) -> str:
     """Return context-aware guidance text for the suggestion bar.
 
     Driven by current dashboard state: player count, active faults,
-    health status, and whether the pipeline has run this session.
+    health status, whether the pipeline has run, and whether a
+    spawn batch is currently active.
     """
+    if spawn_active:
+        return (
+            "Clients active — press [bold]k[/] to despawn, "
+            "or [bold]a[/] to inject a fault"
+        )
     if players == 0:
         return "Press [bold]s[/] to spawn players"
     if active_faults > 0 and status == "critical":
@@ -133,6 +143,19 @@ FAULT_CATALOG: dict[str, dict] = {
     },
 }
 """All 8 fault injection scenarios with descriptions and default params."""
+
+
+# ---------------------------------------------------------------------------
+# Duration options for spawn duration picker
+# ---------------------------------------------------------------------------
+
+DURATION_OPTIONS: list[tuple[str, float]] = [
+    ("10 seconds", 10.0),
+    ("30 seconds", 30.0),
+    ("60 seconds", 60.0),
+    ("Persistent (until stopped)", float("inf")),
+]
+"""Spawn duration choices: label and duration_seconds value."""
 
 
 def format_fault_option(fault_id: str, description: str) -> str:
@@ -204,11 +227,37 @@ def _format_fault_table(faults: list) -> str:
 
 
 try:
+    import threading
+
     from textual import work
     from textual.app import App, ComposeResult
     from textual.containers import Horizontal
     from textual.screen import ModalScreen
     from textual.widgets import DataTable, Footer, Header, OptionList, RichLog, Static
+
+    class DurationPickerScreen(ModalScreen[float | None]):
+        """Modal for selecting a spawn duration."""
+
+        BINDINGS = [("escape", "cancel", "Cancel")]
+
+        def compose(self) -> ComposeResult:
+            """Build an OptionList of duration choices."""
+            options = OptionList(id="duration-options")
+            for label, _ in DURATION_OPTIONS:
+                options.add_option(label)
+            yield options
+
+        def on_option_list_option_selected(
+            self, event: OptionList.OptionSelected
+        ) -> None:
+            """Dismiss with the selected duration value."""
+            idx = event.option_index
+            _, duration = DURATION_OPTIONS[idx]
+            self.dismiss(duration)
+
+        def action_cancel(self) -> None:
+            """Dismiss without selection."""
+            self.dismiss(None)
 
     class FaultPickerScreen(ModalScreen[str | None]):
         """Modal for selecting a fault to inject."""
@@ -245,6 +294,7 @@ try:
             ("q", "quit", "Quit"),
             ("r", "refresh", "Refresh"),
             ("s", "spawn_clients", "Spawn"),
+            ("k", "despawn_clients", "Despawn"),
             ("a", "activate_fault", "Activate"),
             ("d", "deactivate_fault", "Deactivate"),
             ("x", "deactivate_all", "Deact All"),
@@ -259,6 +309,8 @@ try:
             self._player_count: int = 0
             self._health_status: str = "healthy"
             self._pipeline_ran: bool = False
+            self._spawn_stop_event: threading.Event | None = None
+            self._spawn_active: bool = False
 
         def compose(self) -> ComposeResult:
             """Build the widget tree."""
@@ -380,6 +432,7 @@ try:
                 active_faults,
                 self._health_status,
                 self._pipeline_ran,
+                spawn_active=self._spawn_active,
             )
             bar = self.query_one("#suggestion-bar", Static)
             bar.update(text)
@@ -419,12 +472,27 @@ try:
             self.notify("Refreshed")
 
         def action_spawn_clients(self) -> None:
-            """Spawn 5 mock clients via thread worker (key: s)."""
-            self.notify("Spawning 5 clients...")
-            self._do_spawn_clients()
+            """Open duration picker, then spawn 5 clients (key: s)."""
+            if self._spawn_active:
+                self.notify("Clients already active — press k to despawn first", severity="warning")
+                return
+            self.push_screen(DurationPickerScreen(), self._on_duration_picked)
+
+        def _on_duration_picked(self, duration: float | None) -> None:
+            """Handle duration picker result — start spawn with chosen duration."""
+            if duration is None:
+                return
+            self._spawn_stop_event = threading.Event()
+            self._spawn_active = True
+            self._update_suggestion()
+            label = "persistent" if duration == float("inf") else f"{duration:.0f}s"
+            self.notify(f"Spawning 5 clients ({label})...")
+            self._do_spawn_clients(duration, self._spawn_stop_event)
 
         @work(thread=True)
-        def _do_spawn_clients(self) -> None:
+        def _do_spawn_clients(
+            self, duration: float, stop_event: threading.Event
+        ) -> None:
             """Run mock client spawn in a worker thread."""
             try:
                 from wowsim.mock_client import run_spawn
@@ -433,29 +501,41 @@ try:
                 config = ClientConfig(
                     host=self._config.host,
                     port=self._config.port,
-                    duration_seconds=5.0,
+                    duration_seconds=duration,
                 )
-                result = run_spawn(config, 5)
+                result = run_spawn(config, 5, stop_event=stop_event)
                 ok = result.successful_connections
-                if ok == 0:
-                    first_err = next(
-                        (c.error for c in result.clients if c.error), "unknown"
-                    )
-                    self.call_from_thread(
-                        self.notify,
-                        f"Spawn failed: {first_err}",
-                        severity="error",
-                    )
-                else:
-                    self.call_from_thread(
-                        self.notify,
-                        f"Spawned {ok}/5 clients",
-                    )
-                self.call_from_thread(self._trigger_refresh)
+
+                def _finish() -> None:
+                    self._spawn_active = False
+                    self._spawn_stop_event = None
+                    self._update_suggestion()
+                    if ok == 0:
+                        first_err = next(
+                            (c.error for c in result.clients if c.error), "unknown"
+                        )
+                        self.notify(f"Spawn failed: {first_err}", severity="error")
+                    else:
+                        self.notify(f"Spawned {ok}/5 clients — finished")
+                    self._trigger_refresh()
+
+                self.call_from_thread(_finish)
             except Exception as exc:
-                self.call_from_thread(
-                    self.notify, f"Spawn error: {exc}", severity="error"
-                )
+                def _error() -> None:
+                    self._spawn_active = False
+                    self._spawn_stop_event = None
+                    self._update_suggestion()
+                    self.notify(f"Spawn error: {exc}", severity="error")
+
+                self.call_from_thread(_error)
+
+        def action_despawn_clients(self) -> None:
+            """Gracefully stop all running clients (key: k)."""
+            if self._spawn_stop_event is not None and self._spawn_active:
+                self._spawn_stop_event.set()
+                self.notify("Despawning clients...")
+            else:
+                self.notify("No active clients to despawn", severity="warning")
 
         def action_activate_fault(self) -> None:
             """Open fault picker modal (key: a)."""
@@ -525,6 +605,12 @@ try:
                 self.notify(f"Error: {exc}", severity="error")
 
             self._trigger_refresh()
+
+        def action_quit(self) -> None:
+            """Signal stop_event before exiting (key: q)."""
+            if self._spawn_stop_event is not None:
+                self._spawn_stop_event.set()
+            self.exit()
 
         def action_run_pipeline(self) -> None:
             """Run canary deploy pipeline via thread worker (key: p)."""
