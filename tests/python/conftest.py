@@ -385,6 +385,92 @@ def health_log_file(tmp_path: Path, health_log_entries: list[TelemetryEntry]) ->
     return path
 
 
+# --- Game mechanic telemetry fixtures ---
+
+GAME_BASE_TS = "2026-02-25T14:00:00"
+
+
+@pytest.fixture()
+def game_mechanic_entries() -> list[TelemetryEntry]:
+    """Parsed telemetry entries for game-mechanic aggregation tests.
+
+    Includes: cast started/completed/interrupted/GCD-blocked,
+    damage dealt, and entity killed events.
+    """
+    lines = [
+        # Cast started (3 total)
+        _make_line(
+            "event", "spellcast", "Cast started",
+            {"session_id": 1, "spell_id": 10, "cast_time_ticks": 20, "instant": False},
+            f"{GAME_BASE_TS}.000Z",
+        ),
+        _make_line(
+            "event", "spellcast", "Cast started",
+            {"session_id": 1, "spell_id": 11, "cast_time_ticks": 0, "instant": True},
+            f"{GAME_BASE_TS}.100Z",
+        ),
+        _make_line(
+            "event", "spellcast", "Cast started",
+            {"session_id": 2, "spell_id": 10, "cast_time_ticks": 20, "instant": False},
+            f"{GAME_BASE_TS}.200Z",
+        ),
+        # Cast completed (2 total)
+        _make_line(
+            "event", "spellcast", "Cast completed",
+            {"session_id": 1, "spell_id": 10},
+            f"{GAME_BASE_TS}.300Z",
+        ),
+        _make_line(
+            "event", "spellcast", "Cast completed",
+            {"session_id": 1, "spell_id": 11},
+            f"{GAME_BASE_TS}.400Z",
+        ),
+        # Cast interrupted (1 total)
+        _make_line(
+            "event", "spellcast", "Cast interrupted",
+            {"session_id": 2, "spell_id": 10, "reason": "movement"},
+            f"{GAME_BASE_TS}.500Z",
+        ),
+        # Cast blocked by GCD (2 total)
+        _make_line(
+            "event", "spellcast", "Cast blocked by GCD",
+            {"session_id": 1, "spell_id": 12},
+            f"{GAME_BASE_TS}.050Z",
+        ),
+        _make_line(
+            "event", "spellcast", "Cast blocked by GCD",
+            {"session_id": 2, "spell_id": 12},
+            f"{GAME_BASE_TS}.150Z",
+        ),
+        # Damage dealt (3 attacks, 2 attackers)
+        _make_line(
+            "event", "combat", "Damage dealt",
+            {"attacker_id": 1, "target_id": 100, "actual_damage": 500, "damage_type": "physical"},
+            f"{GAME_BASE_TS}.600Z",
+        ),
+        _make_line(
+            "event", "combat", "Damage dealt",
+            {"attacker_id": 1, "target_id": 100, "actual_damage": 300, "damage_type": "physical"},
+            f"{GAME_BASE_TS}.700Z",
+        ),
+        _make_line(
+            "event", "combat", "Damage dealt",
+            {"attacker_id": 2, "target_id": 100, "actual_damage": 200, "damage_type": "spell"},
+            f"{GAME_BASE_TS}.800Z",
+        ),
+        # Entity killed (1 total)
+        _make_line(
+            "event", "combat", "Entity killed",
+            {"target_id": 100, "killer_id": 1},
+            f"{GAME_BASE_TS}.900Z",
+        ),
+    ]
+    from wowsim.log_parser import parse_line
+
+    entries = [parse_line(line) for line in lines]
+    return [e for e in entries if e is not None]
+
+
 # --- Mock game server (for mock client tests) ---
 
 
