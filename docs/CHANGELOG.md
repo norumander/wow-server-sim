@@ -6,6 +6,9 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+- F1 LatencySpike, F6 SlowLeak, F7 SplitBrain faults firing multiple times per game tick when called across zones. Added per-tick deduplication guard so global-once-per-tick faults (sleep, counter increment) execute exactly once regardless of zone count
+
 ### Added
 - Configurable spawn duration: `s` key now opens a `DurationPickerScreen` modal with 10s, 30s, 60s, and persistent (until stopped) options. Replaces hardcoded 5-second spawn
 - Graceful despawn keybinding (`k`): signals `threading.Event` to cleanly disconnect all running mock clients. Server sees clean TCP EOF → DISCONNECTED events
