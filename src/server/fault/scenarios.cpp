@@ -21,6 +21,7 @@ bool LatencySpikeFault::activate(const FaultConfig& config) {
     config_ = config;
     active_ = true;
     ticks_elapsed_ = 0;
+    last_tick_fired_ = UINT64_MAX;
     ++activations_;
     if (config.params.contains("delay_ms")) {
         delay_ms_ = config.params["delay_ms"].get<uint32_t>();
@@ -32,14 +33,16 @@ bool LatencySpikeFault::activate(const FaultConfig& config) {
 
 void LatencySpikeFault::deactivate() {
     active_ = false;
+    last_tick_fired_ = UINT64_MAX;
 }
 
 bool LatencySpikeFault::is_active() const { return active_; }
 
-void LatencySpikeFault::on_tick(uint64_t /*current_tick*/, Zone* /*zone*/) {
-    if (!active_) {
+void LatencySpikeFault::on_tick(uint64_t current_tick, Zone* /*zone*/) {
+    if (!active_ || current_tick == last_tick_fired_) {
         return;
     }
+    last_tick_fired_ = current_tick;
     std::this_thread::sleep_for(std::chrono::milliseconds(delay_ms_));
 }
 
@@ -354,6 +357,7 @@ bool SlowLeakFault::activate(const FaultConfig& config) {
     active_ = true;
     current_delay_ms_ = 0;
     tick_counter_ = 0;
+    last_tick_fired_ = UINT64_MAX;
     ticks_elapsed_ = 0;
     ++activations_;
     if (config.params.contains("increment_ms")) {
@@ -373,14 +377,16 @@ void SlowLeakFault::deactivate() {
     active_ = false;
     current_delay_ms_ = 0;
     tick_counter_ = 0;
+    last_tick_fired_ = UINT64_MAX;
 }
 
 bool SlowLeakFault::is_active() const { return active_; }
 
-void SlowLeakFault::on_tick(uint64_t /*current_tick*/, Zone* /*zone*/) {
-    if (!active_) {
+void SlowLeakFault::on_tick(uint64_t current_tick, Zone* /*zone*/) {
+    if (!active_ || current_tick == last_tick_fired_) {
         return;
     }
+    last_tick_fired_ = current_tick;
     ++tick_counter_;
     if (increment_every_ > 0 && tick_counter_ % increment_every_ == 0) {
         current_delay_ms_ += increment_ms_;
@@ -414,6 +420,7 @@ bool SplitBrainFault::activate(const FaultConfig& config) {
     active_ = true;
     phantoms_created_.clear();
     tick_counter_ = 0;
+    last_tick_fired_ = UINT64_MAX;
     ticks_elapsed_ = 0;
     ++activations_;
     if (config.params.contains("phantom_count")) {
@@ -433,16 +440,21 @@ void SplitBrainFault::deactivate() {
     active_ = false;
     phantoms_created_.clear();
     tick_counter_ = 0;
+    last_tick_fired_ = UINT64_MAX;
 }
 
 bool SplitBrainFault::is_active() const { return active_; }
 
-void SplitBrainFault::on_tick(uint64_t /*current_tick*/, Zone* zone) {
+void SplitBrainFault::on_tick(uint64_t current_tick, Zone* zone) {
     if (!active_ || zone == nullptr) {
         return;
     }
 
-    ++tick_counter_;
+    // Only increment tick counter once per game tick (not once per zone)
+    if (current_tick != last_tick_fired_) {
+        last_tick_fired_ = current_tick;
+        ++tick_counter_;
+    }
     auto zid = zone->zone_id();
 
     // Phase 1: Create phantom entities on first tick per zone

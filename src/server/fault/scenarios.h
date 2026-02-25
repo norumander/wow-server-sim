@@ -30,6 +30,7 @@ private:
     uint64_t activations_ = 0;
     uint64_t ticks_elapsed_ = 0;
     uint32_t delay_ms_ = 200;
+    uint64_t last_tick_fired_ = UINT64_MAX;  ///< Dedup: skip duplicate calls within the same game tick
 };
 
 /// F2: Session Crash — force-terminates a player session in a zone.
@@ -162,6 +163,7 @@ private:
     uint32_t increment_every_ = 100;
     uint32_t current_delay_ms_ = 0;
     uint64_t tick_counter_ = 0;
+    uint64_t last_tick_fired_ = UINT64_MAX;  ///< Dedup: skip duplicate calls within the same game tick
 };
 
 /// F7: Split Brain — creates phantom entities with divergent state across zones.
@@ -190,6 +192,7 @@ private:
     uint64_t phantom_base_id_ = 2000001;
     std::map<uint32_t, bool> phantoms_created_;
     uint64_t tick_counter_ = 0;
+    uint64_t last_tick_fired_ = UINT64_MAX;  ///< Dedup: skip duplicate tick_counter_ increments
 };
 
 /// F8: Thundering Herd — mass disconnect then simultaneous reconnect.
