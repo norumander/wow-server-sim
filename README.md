@@ -1,6 +1,6 @@
 # WoW Server Simulator
 
-![Tests](https://img.shields.io/badge/tests-414_passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-456_passing-brightgreen)
 ![C++](https://img.shields.io/badge/C%2B%2B-17-blue)
 ![Python](https://img.shields.io/badge/Python-3.11%2B-blue)
 ![License](https://img.shields.io/badge/license-MIT-lightgrey)
@@ -22,7 +22,7 @@ Every feature maps directly to a requirement from the WoW Server Reliability Eng
 | Reliability mindset | Health checks, automated rollback, failure prediction | Canary deployments, zone crash isolation, graceful degradation |
 | Shepherd hotfixes dev to live | Simulated deployment pipeline | Multi-stage rollout (build → validate → canary → promote/rollback) |
 | WoW domain knowledge | Authentic game mechanics simulation | Spell casts with GCD, combat ticks, threat tables, zone isolation — modeled on real WoW systems |
-| Automation to reduce toil | Python tooling suite | 9 CLI modules: log analysis, anomaly detection, benchmarks, deployment orchestration |
+| Automation to reduce toil | Python tooling suite | 9 CLI modules: log analysis, anomaly detection, benchmarks, deployment orchestration, interactive demo |
 
 ## Key Features
 
@@ -32,7 +32,7 @@ C++17 TCP server running a fixed 20 Hz tick loop (matching WoW's actual server t
 
 ### Fault Injection Framework
 
-8 runtime-injectable failure scenarios (F1–F8) controllable via a separate TCP control channel. Ranges from simple latency spikes and session crashes to complex cascading zone failures, slow memory leaks, split-brain partitions, and thundering herd reconnection storms. Faults compose with zone targeting and auto-expiry.
+8 runtime-injectable failure scenarios (F1–F8) controllable via a separate TCP control channel. Ranges from simple latency spikes and session crashes to complex cascading zone failures, slow memory leaks, split-brain partitions, and thundering herd reconnection storms. Faults compose with zone targeting, auto-expiry, and per-tick deduplication so global faults fire exactly once regardless of zone count.
 
 ### Reliability Lifecycle Demo
 
@@ -44,7 +44,7 @@ Two demo modes: a scripted 70-second walkthrough (`scripts/demo.sh`) for non-int
 
 ### Monitoring Dashboard
 
-Textual-based TUI with auto-refreshing panels for tick metrics, zone health, active faults, and a scrolling event log. Worker-thread health refresh for non-blocking sync I/O. Keyboard shortcuts for spawning clients (`s`), fault picker modal (`a`), deactivation (`d`/`x`), and pipeline execution (`p`). Guided suggestion bar shows context-aware next steps.
+Textual-based TUI with auto-refreshing panels for tick metrics, zone health, active faults, and a scrolling event log. Worker-thread health refresh for non-blocking sync I/O. Keyboard shortcuts for spawning clients (`s`) with configurable duration (10s/30s/60s/persistent), graceful despawn (`k`), fault picker modal (`a`), deactivation (`d`/`x`), and pipeline execution (`p`). Guided suggestion bar adapts to current state — showing despawn guidance when clients are running and next-step prompts throughout the reliability lifecycle.
 
 ### Deployment Pipeline
 
@@ -322,10 +322,10 @@ The server emits structured JSONL telemetry to `telemetry.jsonl`. Every line is 
 
 ## Project Stats
 
-- **264** C++ tests (GoogleTest) — server core, events, zones, faults, control channel
-- **134** Python tests (pytest) — CLI tools, models, formatting, orchestration
+- **267** C++ tests (GoogleTest) — server core, events, zones, faults, control channel
+- **173** Python tests (pytest) — CLI tools, models, formatting, orchestration, dashboard, benchmarks
 - **16** integration tests — connection lifecycle, fault injection/recovery, end-to-end
-- **28** Architecture Decision Records (ADRs)
+- **29** Architecture Decision Records (ADRs)
 - **8** fault injection scenarios (F1–F8)
 - **5** architecture diagrams (Mermaid)
 - **9** CLI modules under `wowsim`
@@ -344,7 +344,7 @@ The server emits structured JSONL telemetry to `telemetry.jsonl`. Every line is 
 ## Documentation
 
 - [Architecture](docs/ARCHITECTURE.md) — Component design, data flow, concurrency model
-- [Decision Records](docs/DECISIONS.md) — 28 ADRs for all architectural choices
+- [Decision Records](docs/DECISIONS.md) — 29 ADRs for all architectural choices
 - [Product Requirements](docs/PRD.md) — Full project scope, skills mapping, success criteria
 - [Changelog](docs/CHANGELOG.md) — Running log of all changes
 - [Capture Guide](docs/CAPTURE_GUIDE.md) — Instructions for recording screenshots and GIFs
