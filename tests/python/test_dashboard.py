@@ -392,3 +392,88 @@ class TestPipelineBinding:
 
         assert hasattr(WoWDashboardApp, "action_run_pipeline")
         assert callable(getattr(WoWDashboardApp, "action_run_pipeline"))
+
+
+# ---------------------------------------------------------------------------
+# Group M: Spawn active suggestion (3 tests)
+# ---------------------------------------------------------------------------
+
+
+class TestSpawnActiveSuggestion:
+    """compute_suggestion with spawn_active=True returns despawn guidance."""
+
+    def test_spawn_active_shows_despawn_hint(self) -> None:
+        from wowsim.dashboard import compute_suggestion
+
+        result = compute_suggestion(
+            players=5, active_faults=0, status="healthy",
+            pipeline_ran=False, spawn_active=True,
+        )
+        assert "k" in result.lower()
+        assert "despawn" in result.lower() or "active" in result.lower()
+
+    def test_spawn_active_overrides_normal_suggestion(self) -> None:
+        from wowsim.dashboard import compute_suggestion
+
+        result = compute_suggestion(
+            players=0, active_faults=0, status="healthy",
+            pipeline_ran=False, spawn_active=True,
+        )
+        # Even with 0 players, spawn_active takes priority
+        assert "k" in result.lower()
+
+    def test_spawn_not_active_preserves_existing(self) -> None:
+        from wowsim.dashboard import compute_suggestion
+
+        result = compute_suggestion(
+            players=0, active_faults=0, status="healthy",
+            pipeline_ran=False, spawn_active=False,
+        )
+        assert "s" in result.lower()
+        assert "spawn" in result.lower() or "player" in result.lower()
+
+
+# ---------------------------------------------------------------------------
+# Group N: Despawn keybinding (2 tests)
+# ---------------------------------------------------------------------------
+
+
+class TestDespawnBinding:
+    """Dashboard has 'k' keybinding that triggers despawn action."""
+
+    def test_binding_registered(self) -> None:
+        from wowsim.dashboard import WoWDashboardApp
+
+        keys = [b[0] if isinstance(b, tuple) else b.key for b in WoWDashboardApp.BINDINGS]
+        assert "k" in keys
+
+    def test_action_method_exists(self) -> None:
+        from wowsim.dashboard import WoWDashboardApp
+
+        assert hasattr(WoWDashboardApp, "action_despawn_clients")
+        assert callable(getattr(WoWDashboardApp, "action_despawn_clients"))
+
+
+# ---------------------------------------------------------------------------
+# Group O: Duration picker and options (3 tests)
+# ---------------------------------------------------------------------------
+
+
+class TestDurationPicker:
+    """DURATION_OPTIONS constant and DurationPickerScreen exist."""
+
+    def test_duration_options_exist(self) -> None:
+        from wowsim.dashboard import DURATION_OPTIONS
+
+        assert len(DURATION_OPTIONS) == 4
+
+    def test_duration_options_include_persistent(self) -> None:
+        from wowsim.dashboard import DURATION_OPTIONS
+
+        durations = [d[1] for d in DURATION_OPTIONS]
+        assert float("inf") in durations
+
+    def test_duration_picker_screen_exists(self) -> None:
+        from wowsim.dashboard import DurationPickerScreen
+
+        assert DurationPickerScreen is not None
