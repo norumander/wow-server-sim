@@ -658,3 +658,21 @@ Server stays on standard ports (8080/8081), so separate terminals can still run 
 - Warning-level spikes (not critical) isolate the game-mechanic degradation path in `determine_status()`
 - 5 reusable line builders (`make_cast_started_line`, etc.) available for future game-mechanic integration tests
 - Pattern extends naturally to F5-F8 advanced fault scenarios in future milestones
+
+---
+
+## ADR-033: Per-Zone Game-Mechanic Telemetry — Extending Zone Tick Metrics
+
+**Date:** 2026-02-25
+**Status:** Accepted
+
+**Context:** Milestones 1-3 wired game-mechanic telemetry into Python tooling at the server-wide level. However, the dashboard zone table only showed 5 infrastructure columns (Zone, State, Ticks, Errors, Avg ms). Game mechanics (casts, DPS) were invisible at the zone level even though `Zone::tick()` already computed `SpellCastResult` and `CombatResult` per zone — the results were computed and discarded before logging.
+
+**Decision:** Extend the existing `"Zone tick completed"` telemetry metric with fields already available in `ZoneTickResult`: casts_started, casts_completed, casts_interrupted, gcd_blocked (from SpellCastResult), attacks_processed, total_damage_dealt, kills (from CombatResult). No new telemetry events needed. Python-side, `ZoneHealthSummary` gains total_casts, total_damage, zone_dps fields with zero defaults for backward compatibility. Dashboard zone table expanded to 7 columns via `ZONE_COLUMNS` constant. Threat table rendered in game mechanics panel via `format_threat_table_panel()`.
+
+**Consequences:**
+- Per-zone game-mechanic visibility in dashboard with zero new events — minimal telemetry overhead
+- Zero defaults on ZoneHealthSummary preserve backward compatibility with existing tests and code constructing the model
+- Dashboard zone table shows Casts and DPS columns alongside infrastructure metrics
+- Threat table (damage = threat per ADR-012) visible when top_damage_dealers is non-empty
+- Integration conftest `make_zone_tick_line()` accepts optional game-mechanic params for future test scenarios

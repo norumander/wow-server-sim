@@ -77,7 +77,7 @@ wowsim dashboard --log-file telemetry.jsonl
 # Wait ~10 seconds for metrics to populate, then screenshot Terminal 3
 ```
 
-**Verify:** Screenshot shows the status bar (HEALTHY), tick metrics panel with non-zero values, zone health table with both zones ACTIVE, and scrolling event log with recent entries.
+**Verify:** Screenshot shows the status bar (HEALTHY), tick metrics panel with non-zero values, zone health table with 7 columns (Zone, State, Ticks, Errors, Avg ms, Casts, DPS) with both zones ACTIVE and non-zero Casts/DPS values, game mechanics panel with cast stats and threat table, and scrolling event log with recent entries.
 
 **Optimize:**
 ```bash

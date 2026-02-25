@@ -124,8 +124,8 @@ Detailed Mermaid diagrams are available in [`docs/diagrams/`](diagrams/). GitHub
 - **State recovery:** CRASHED → DEGRADED → ACTIVE on successive successful ticks, visible in telemetry for monitoring dashboard
 - **Fault injection hooks:** `set_pre_tick_hook()`/`set_post_tick_hook()` accept `std::function<void()>`. Map to `FaultPreTickPhase`/`FaultPostTickPhase` from ADR-009. Used by Step 10 fault injection framework
 - **Health:** `health()` returns `ZoneHealth` snapshot (zone_id, state, total_ticks, error_count, entity_count, event_queue_depth, last_tick_duration_ms)
-- **Telemetry:** Emits `"Zone tick completed"` metric (with zone_id, events_processed, duration_ms) on success, `"Zone tick exception"` error (with zone_id, error message) on failure. Guarded by `Logger::is_initialized()`
-- **Test strategy:** 18 GoogleTest cases in 6 groups: construction (2), entity management (4), event delivery (2), tick pipeline (4), exception guard (4), telemetry (2)
+- **Telemetry:** Emits `"Zone tick completed"` metric on success with operational fields (zone_id, events_processed, entities_moved, duration_ms) and game-mechanic fields (casts_started, casts_completed, casts_interrupted, gcd_blocked, attacks_processed, total_damage_dealt, kills). Emits `"Zone tick exception"` error (with zone_id, error message) on failure. Guarded by `Logger::is_initialized()`. Game-mechanic fields enable per-zone cast/DPS visibility in the Python dashboard without new telemetry events (ADR-033)
+- **Test strategy:** 19 GoogleTest cases in 6 groups: construction (2), entity management (4), event delivery (2), tick pipeline (4), exception guard (4), telemetry (3 — including game-mechanic field verification)
 
 ### ZoneManager — Hub-and-Spoke Coordinator (`src/server/world/zone_manager.h`)
 - **Implementation:** `wow::ZoneManager` class owning all `Zone` instances via `unordered_map<ZoneId, unique_ptr<Zone>>`. Maintains `session_id → zone_id` mapping for event routing and session lifecycle
@@ -284,7 +284,7 @@ See the [Session State Machine Diagram](diagrams/session-state-machine.md) for a
 - **Formatting:** `format_health_report()` produces human-readable multi-line output with status, tick rate, zones, game mechanics (cast success, GCD block rate, DPS, kills), players, faults, and anomalies
 - **Models:** `TickHealth`, `ZoneHealthSummary`, `HealthReport` (Pydantic v2) in `wowsim.models`. `HealthReport` composes existing `Anomaly`, `FaultInfo`, and `GameMechanicSummary` models
 - **CLI:** `wowsim health --log-file <path>` with `--watch`/`--interval` for continuous monitoring, `--format json|text`, `--no-faults` to skip control channel, `--host`/`--port`/`--control-port` for server addresses
-- **Test strategy:** 25 pytest cases in 8 groups: health models (3), tick health computation (3), zone health and player count (3), status determination (3+2), game-mechanic health signals (4), server reachability (2), report building and formatting (2+1), CLI integration (2)
+- **Test strategy:** pytest cases in groups: health models (3), tick health computation (3), zone health and player count (3), status determination (3+2), game-mechanic health signals (4), per-zone game-mechanic fields (4), server reachability (2), report building and formatting (2+1), CLI integration (2)
 
 ### Mock Client Spawner (`wowsim/mock_client.py`)
 - **Responsibility:** Spawn N concurrent simulated players that generate WoW-realistic game traffic for stress testing and load generation
@@ -305,11 +305,13 @@ See the [Session State Machine Diagram](diagrams/session-state-machine.md) for a
   - Health refresh: `@work(thread=True)` runs sync functions from `health_check.py` and `log_parser.py` in a worker thread. `call_from_thread()` marshals results back for UI updates
   - Fault queries: `@work(exclusive=True)` runs async `ControlClient` directly on the Textual event loop
 - **Timestamp watermark:** `filter_new_entries()` tracks last-seen timestamp to append only new entries to the RichLog, preventing duplicates
-- **Pure formatting functions:** `format_status_bar`, `format_tick_panel`, `format_game_mechanics_panel`, `format_event_line`, `status_to_style`, `fault_action_label` — independently testable without Textual
+- **Zone table:** 7-column DataTable (`ZONE_COLUMNS` constant): Zone, State, Ticks, Errors, Avg (ms), Casts, DPS. Casts and DPS columns sourced from per-zone game-mechanic telemetry fields (casts_started, total_damage_dealt) added to zone tick metrics (ADR-033)
+- **Threat table:** `format_threat_table_panel()` renders ranked damage dealers in the game mechanics panel when top_damage_dealers is non-empty. Damage ranking = threat ranking per ADR-012
+- **Pure formatting functions:** `format_status_bar`, `format_tick_panel`, `format_game_mechanics_panel`, `format_threat_table_panel`, `format_event_line`, `status_to_style`, `fault_action_label` — independently testable without Textual
 - **Key bindings:** `q` (quit), `r` (manual refresh), `a` (activate first inactive fault), `d` (deactivate first active fault), `x` (deactivate all)
 - **Configuration:** `DashboardConfig` (Pydantic v2) with log_file, host, port, control_port, refresh_interval
 - **CLI:** `wowsim dashboard --log-file <path> --host <host> --port <port> --control-port <port> --refresh <seconds>`
-- **Test strategy:** 16 pytest cases in 8 groups: status bar formatting (2), tick panel formatting (2), style mapping (1), event line formatting (2), fault label (2), entry filtering with watermark (3), config defaults/overrides (2), CLI integration (2)
+- **Test strategy:** pytest cases in groups: status bar formatting (2), tick panel formatting (2), style mapping (1), event line formatting (2), game mechanics panel (3), fault label (2), entry filtering with watermark (3), config defaults/overrides (2), CLI integration (2), suggestion bar (6), spawn/despawn/pipeline bindings (6), fault catalog (3), duration picker (3), zone columns (2), threat table panel (3)
 
 ### Hotfix Pipeline (`wowsim/pipeline.py`)
 - **Responsibility:** Orchestrate a staged deployment lifecycle (build → validate → canary → promote/rollback) by composing existing health_check and fault_trigger modules
