@@ -150,7 +150,8 @@ class TestActionSelection:
 # Group D: Single Client Lifecycle
 # ---------------------------------------------------------------------------
 
-import asyncio
+import asyncio  # noqa: E402
+import pytest  # noqa: E402
 import time
 
 from wowsim.mock_client import MockGameClient
@@ -158,6 +159,17 @@ from wowsim.mock_client import MockGameClient
 
 class TestSingleClientLifecycle:
     """Verify individual mock client connect, send, and run loop."""
+
+    def test_mock_client_connect_timeout(self) -> None:
+        """Connection to unreachable host times out instead of hanging."""
+
+        async def _test() -> None:
+            # Port 1 on loopback — nothing listening, should time out quickly
+            client = MockGameClient(client_id=0, host="127.0.0.1", port=1)
+            with pytest.raises((OSError, asyncio.TimeoutError)):
+                await client.connect(timeout=0.5)
+
+        asyncio.run(_test())
 
     def test_mock_client_connects(self, mock_game_server: dict) -> None:
         host, port = mock_game_server["host"], mock_game_server["port"]
