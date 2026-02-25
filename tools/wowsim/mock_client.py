@@ -251,7 +251,20 @@ async def spawn_clients(config: ClientConfig, count: int) -> SpawnResult:
 
 
 def run_spawn(config: ClientConfig, count: int) -> SpawnResult:
-    """Synchronous wrapper around spawn_clients for CLI use."""
+    """Synchronous wrapper around spawn_clients for CLI use.
+
+    On Windows, uses SelectorEventLoop instead of the default
+    ProactorEventLoop to avoid IOCP-related WSAECONNABORTED errors
+    on loopback TCP connections.
+    """
+    import sys
+
+    if sys.platform == "win32":
+        loop = asyncio.SelectorEventLoop()
+        try:
+            return loop.run_until_complete(spawn_clients(config, count))
+        finally:
+            loop.close()
     return asyncio.run(spawn_clients(config, count))
 
 
