@@ -298,6 +298,117 @@ class TestStatusCritical:
 
 
 # ============================================================
+# Group D2: Game-Mechanic Health Signals (4 tests)
+# ============================================================
+
+
+class TestStatusDegradedFromHighGCDBlockRate:
+    """GCD block rate > 50% triggers 'degraded'."""
+
+    def test_high_gcd_block_rate(self) -> None:
+        from wowsim.models import CastMetrics, CombatMetrics, GameMechanicSummary
+
+        gm = GameMechanicSummary(
+            cast_metrics=CastMetrics(
+                casts_started=5,
+                casts_completed=3,
+                casts_interrupted=2,
+                gcd_blocked=10,
+                cast_success_rate=0.6,
+                gcd_block_rate=0.667,  # > 50%
+                cast_rate_per_sec=1.0,
+            ),
+            combat_metrics=CombatMetrics(
+                total_damage=1000, total_attacks=5, kills=0,
+                active_entities=1, overall_dps=100.0,
+            ),
+            top_damage_dealers=[],
+            duration_seconds=10.0,
+        )
+        status = determine_status(tick=None, zones=[], anomalies=[], game_mechanics=gm)
+        assert status == "degraded"
+
+
+class TestStatusDegradedFromLowCastSuccessRate:
+    """Cast success rate < 50% triggers 'degraded'."""
+
+    def test_low_cast_success_rate(self) -> None:
+        from wowsim.models import CastMetrics, CombatMetrics, GameMechanicSummary
+
+        gm = GameMechanicSummary(
+            cast_metrics=CastMetrics(
+                casts_started=10,
+                casts_completed=3,
+                casts_interrupted=7,
+                gcd_blocked=0,
+                cast_success_rate=0.3,  # < 50%
+                gcd_block_rate=0.0,
+                cast_rate_per_sec=1.0,
+            ),
+            combat_metrics=CombatMetrics(
+                total_damage=1000, total_attacks=5, kills=0,
+                active_entities=1, overall_dps=100.0,
+            ),
+            top_damage_dealers=[],
+            duration_seconds=10.0,
+        )
+        status = determine_status(tick=None, zones=[], anomalies=[], game_mechanics=gm)
+        assert status == "degraded"
+
+
+class TestStatusDegradedFromZeroCombatWithPlayers:
+    """Zero combat activity with connected players triggers 'degraded'."""
+
+    def test_zero_combat_with_players(self) -> None:
+        from wowsim.models import CastMetrics, CombatMetrics, GameMechanicSummary
+
+        gm = GameMechanicSummary(
+            cast_metrics=CastMetrics(
+                casts_started=0, casts_completed=0, casts_interrupted=0,
+                gcd_blocked=0, cast_success_rate=0.0,
+                gcd_block_rate=0.0, cast_rate_per_sec=0.0,
+            ),
+            combat_metrics=CombatMetrics(
+                total_damage=0, total_attacks=0, kills=0,
+                active_entities=0, overall_dps=0.0,
+            ),
+            top_damage_dealers=[],
+            duration_seconds=10.0,
+        )
+        status = determine_status(
+            tick=None, zones=[], anomalies=[],
+            game_mechanics=gm, connected_players=5,
+        )
+        assert status == "degraded"
+
+
+class TestStatusHealthyWithGoodGameMechanics:
+    """Healthy game mechanics should not affect healthy status."""
+
+    def test_good_mechanics_stay_healthy(self) -> None:
+        from wowsim.models import CastMetrics, CombatMetrics, GameMechanicSummary
+
+        gm = GameMechanicSummary(
+            cast_metrics=CastMetrics(
+                casts_started=10, casts_completed=9, casts_interrupted=1,
+                gcd_blocked=1, cast_success_rate=0.9,
+                gcd_block_rate=0.09, cast_rate_per_sec=1.0,
+            ),
+            combat_metrics=CombatMetrics(
+                total_damage=5000, total_attacks=20, kills=2,
+                active_entities=3, overall_dps=500.0,
+            ),
+            top_damage_dealers=[],
+            duration_seconds=10.0,
+        )
+        status = determine_status(
+            tick=None, zones=[], anomalies=[],
+            game_mechanics=gm, connected_players=3,
+        )
+        assert status == "healthy"
+
+
+# ============================================================
 # Group E: Server Reachability (2 tests)
 # ============================================================
 
@@ -384,6 +495,38 @@ class TestFormatHealthReportText:
 # ============================================================
 # Group G: CLI Integration (2 tests)
 # ============================================================
+
+
+class TestFormatHealthReportWithGameMechanics:
+    """Formatted output includes Game Mechanics section when present."""
+
+    def test_format_includes_game_mechanics(self) -> None:
+        from wowsim.models import CastMetrics, CombatMetrics, EntityDPS, GameMechanicSummary
+
+        report = HealthReport(
+            timestamp=datetime(2026, 2, 25, 10, 0, 0, tzinfo=timezone.utc),
+            status="healthy",
+            server_reachable=True,
+            game_mechanics=GameMechanicSummary(
+                cast_metrics=CastMetrics(
+                    casts_started=10, casts_completed=8, casts_interrupted=2,
+                    gcd_blocked=1, cast_success_rate=0.8,
+                    gcd_block_rate=0.09, cast_rate_per_sec=1.0,
+                ),
+                combat_metrics=CombatMetrics(
+                    total_damage=5000, total_attacks=15, kills=2,
+                    active_entities=3, overall_dps=250.0,
+                ),
+                top_damage_dealers=[
+                    EntityDPS(entity_id=1, total_damage=3000, dps=150.0, attack_count=8),
+                ],
+                duration_seconds=20.0,
+            ),
+        )
+        text = format_health_report(report)
+        assert "Game Mechanics" in text
+        assert "80.0%" in text  # cast success rate
+        assert "250.0" in text  # overall DPS
 
 
 class TestCLIHealthWithLogFile:
