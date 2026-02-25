@@ -544,16 +544,14 @@ try:
             def _log_results() -> None:
                 log = self.query_one("#event-log", RichLog)
                 outcome = result.outcome.upper()
-                style = "bold green" if outcome == "PROMOTE" else "bold red"
+                style = "bold green" if outcome == "PROMOTED" else "bold red"
                 log.write("")
                 log.write(f"[{style}]{'=' * 40}[/]")
                 log.write(f"[{style}]  PIPELINE: {outcome}[/]")
-                log.write(f"[{style}]{'=' * 40}[/]")
                 for stage in result.stages:
                     icon = "[green]PASS[/]" if stage.passed else "[red]FAIL[/]"
-                    log.write(f"  {icon}  {stage.name} ({stage.duration_seconds:.1f}s)")
-                    if stage.detail:
-                        log.write(f"        {stage.detail}")
+                    log.write(f"  {icon}  {stage.name} ({stage.duration_seconds:.1f}s) — {stage.message}")
+                log.write(f"[{style}]{'=' * 40}[/]")
                 log.write("")
                 self._pipeline_ran = True
                 self._update_suggestion()
