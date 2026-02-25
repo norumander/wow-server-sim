@@ -411,28 +411,72 @@ try:
 
         @work(thread=True)
         def _do_spawn_clients(self) -> None:
-            """Run mock client spawn in a worker thread."""
-            from wowsim.mock_client import run_spawn
-            from wowsim.models import ClientConfig
+            """Spawn mock clients using synchronous sockets.
 
-            # Use 127.0.0.1 explicitly: the C++ server binds IPv4 loopback,
-            # and "localhost" on Windows may resolve to ::1 (IPv6) first,
-            # causing WSAECONNABORTED (WinError 10053).
+            Avoids asyncio entirely — the ProactorEventLoop on Windows
+            produces WSAECONNABORTED on loopback TCP when run inside
+            a Textual worker thread.
+            """
+            import json as _json
+            import socket as _socket
+            import threading
+            import time
+
+            from wowsim.mock_client import choose_action
+
             host = self._config.host
             if host == "localhost":
                 host = "127.0.0.1"
+            port = self._config.port
+            count = 5
+            duration = 5.0
+            interval = 0.5  # 2 actions/sec
 
-            config = ClientConfig(
-                host=host,
-                port=self._config.port,
-                duration_seconds=5.0,
-            )
-            result = run_spawn(config, 5)
-            ok = result.successful_connections
-            if ok == 0:
-                first_err = next(
-                    (c.error for c in result.clients if c.error), "unknown"
-                )
+            errors: list[str] = []
+            ok_count = 0
+            lock = threading.Lock()
+
+            def _run_one(client_id: int) -> None:
+                nonlocal ok_count
+                try:
+                    sock = _socket.create_connection((host, port), timeout=3)
+                except OSError as exc:
+                    with lock:
+                        errors.append(str(exc))
+                    return
+                try:
+                    deadline = time.monotonic() + duration
+                    x, y, z = 0.0, 0.0, 0.0
+                    while time.monotonic() < deadline:
+                        action = choose_action(client_id, x, y, z)
+                        if action["type"] == "movement":
+                            x = action["position"]["x"]
+                            y = action["position"]["y"]
+                            z = action["position"]["z"]
+                        payload = _json.dumps(action) + "\n"
+                        sock.sendall(payload.encode())
+                        remaining = deadline - time.monotonic()
+                        if remaining > 0:
+                            time.sleep(min(interval, remaining))
+                    with lock:
+                        ok_count += 1
+                except OSError as exc:
+                    with lock:
+                        errors.append(str(exc))
+                finally:
+                    sock.close()
+
+            threads = [
+                threading.Thread(target=_run_one, args=(i,))
+                for i in range(count)
+            ]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
+
+            if ok_count == 0:
+                first_err = errors[0] if errors else "unknown"
                 self.call_from_thread(
                     self.notify,
                     f"Spawn failed: {first_err}",
@@ -441,7 +485,7 @@ try:
             else:
                 self.call_from_thread(
                     self.notify,
-                    f"Spawned {ok}/5 clients",
+                    f"Spawned {ok_count}/{count} clients",
                 )
             self.call_from_thread(self._trigger_refresh)
 
