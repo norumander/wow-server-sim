@@ -1,6 +1,6 @@
 # WoW Server Simulator
 
-![Tests](https://img.shields.io/badge/tests-456_passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-463_passing-brightgreen)
 ![C++](https://img.shields.io/badge/C%2B%2B-17-blue)
 ![Python](https://img.shields.io/badge/Python-3.11%2B-blue)
 ![License](https://img.shields.io/badge/license-MIT-lightgrey)
@@ -8,7 +8,7 @@
 A C++17 game server with Python reliability tooling that demonstrates server reliability engineering for the **World of Warcraft Server** team at Blizzard Entertainment. The project simulates a simplified WoW game server — fixed-rate tick loop, player sessions, combat, spells, zone isolation — then layers fault injection, telemetry, and automated recovery on top, showcasing the full lifecycle of **detect, diagnose, fix, deploy**.
 
 ![Full demo walkthrough — server startup, fault injection, anomaly detection, pipeline rollback, recovery](docs/assets/demo-full.gif)
-*Full reliability lifecycle demo: baseline → fault injection → diagnosis → fix → canary deploy → rollback (70 seconds, sped up 3x). See [Capture Guide](docs/CAPTURE_GUIDE.md) for recording instructions.*
+*Full reliability lifecycle demo: baseline → fault injection → diagnosis → fix → canary deploy → rollback (70 seconds, sped up 3x).*
 
 ## Why This Project
 
@@ -95,7 +95,7 @@ graph TD
 Three threads handle distinct responsibilities: the **network thread** accepts game client connections on port 8080, the **control channel thread** accepts operator commands on port 8081, and the **main thread** runs the 20 Hz game loop. Three thread-safe queues (SessionEventQueue, EventQueue, CommandQueue) bridge the threads. Python tooling connects externally via TCP and reads the durable JSONL telemetry log for observability.
 
 ![Monitoring dashboard with live tick metrics, zone health, and event log](docs/assets/dashboard-tui.png)
-*Textual TUI dashboard showing real-time server health. See [Capture Guide](docs/CAPTURE_GUIDE.md) for recording instructions.*
+*Textual TUI dashboard showing real-time server health.*
 
 **Additional architecture diagrams:** [Thread Model](docs/diagrams/thread-model.md) | [Tick Pipeline](docs/diagrams/tick-pipeline.md) | [Session State Machine](docs/diagrams/session-state-machine.md) | [Python Tool Composition](docs/diagrams/python-tools.md)
 
@@ -121,13 +121,13 @@ bash scripts/demo.sh
 **Prerequisites:** built server binary + Python venv with `wowsim` installed (see [Quick Start](#quick-start)).
 
 ![Healthy server baseline with 5 players, all zones ACTIVE](docs/assets/demo-baseline.png)
-*Phase 1: Healthy baseline — 5 players, both zones active, zero overruns. See [Capture Guide](docs/CAPTURE_GUIDE.md) for recording instructions.*
+*Phase 1: Healthy baseline — 5 players, both zones active, zero overruns.*
 
 ![CRITICAL health status with latency spike anomalies detected](docs/assets/demo-fault-injection.png)
-*Phases 2-3: Fault injection — CRITICAL status, latency anomalies detected in telemetry. See [Capture Guide](docs/CAPTURE_GUIDE.md) for recording instructions.*
+*Phases 2-3: Fault injection — CRITICAL status, latency anomalies detected in telemetry.*
 
 ![Pipeline report showing canary failure and automatic rollback](docs/assets/demo-pipeline-rollback.png)
-*Phase 5: Canary deployment detects degradation and triggers automatic rollback. See [Capture Guide](docs/CAPTURE_GUIDE.md) for recording instructions.*
+*Phase 5: Canary deployment detects degradation and triggers automatic rollback.*
 
 ### Sample Output
 
@@ -231,7 +231,7 @@ Total:   5.58s
 | F8 | Thundering Herd | Tick-scoped | Mass disconnect then simultaneous reconnect after delay | Auth system overload, reconnection storm |
 
 ![Cascading zone failure — zone 1 crash propagates to zone 2 overload](docs/assets/fault-cascade.gif)
-*F5 Cascading Zone Failure: zone 1 crashes, players redistribute to zone 2, triggering overload. See [Capture Guide](docs/CAPTURE_GUIDE.md) for recording instructions.*
+*F5 Cascading Zone Failure: zone 1 crashes, players redistribute to zone 2, triggering overload.*
 
 ## Quick Start
 
@@ -323,7 +323,7 @@ The server emits structured JSONL telemetry to `telemetry.jsonl`. Every line is 
 ## Project Stats
 
 - **267** C++ tests (GoogleTest) — server core, events, zones, faults, control channel
-- **173** Python tests (pytest) — CLI tools, models, formatting, orchestration, dashboard, benchmarks
+- **180** Python tests (pytest) — CLI tools, models, formatting, orchestration, dashboard, benchmarks
 - **16** integration tests — connection lifecycle, fault injection/recovery, end-to-end
 - **29** Architecture Decision Records (ADRs)
 - **8** fault injection scenarios (F1–F8)
