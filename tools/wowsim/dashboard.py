@@ -411,72 +411,30 @@ try:
 
         @work(thread=True)
         def _do_spawn_clients(self) -> None:
-            """Spawn mock clients one at a time using plain sockets."""
-            import json as _json
-            import socket as _socket
-            import time
+            """Run mock client spawn in a worker thread."""
+            from wowsim.mock_client import run_spawn
+            from wowsim.models import ClientConfig
 
-            from wowsim.mock_client import choose_action
-
-            host = self._config.host
-            if host == "localhost":
-                host = "127.0.0.1"
-            port = self._config.port
-            count = 5
-            ok_count = 0
-
-            for client_id in range(count):
-                try:
-                    sock = _socket.create_connection(
-                        (host, port), timeout=3
-                    )
-                    sock.setsockopt(
-                        _socket.IPPROTO_TCP, _socket.TCP_NODELAY, 1
-                    )
-                except OSError as exc:
-                    self.call_from_thread(
-                        self.notify,
-                        f"Client {client_id} connect failed: {exc}",
-                        severity="error",
-                    )
-                    continue
-
-                try:
-                    x, y, z = 0.0, 0.0, 0.0
-                    for _ in range(6):
-                        action = choose_action(client_id, x, y, z)
-                        if action["type"] == "movement":
-                            x = action["position"]["x"]
-                            y = action["position"]["y"]
-                            z = action["position"]["z"]
-                        payload = _json.dumps(action) + "\n"
-                        sock.sendall(payload.encode())
-                        time.sleep(0.3)
-                    ok_count += 1
-                except OSError as exc:
-                    self.call_from_thread(
-                        self.notify,
-                        f"Client {client_id} send failed: {exc}",
-                        severity="error",
-                    )
-                finally:
-                    try:
-                        sock.shutdown(_socket.SHUT_RDWR)
-                    except OSError:
-                        pass
-                    sock.close()
-
-            if ok_count > 0:
+            config = ClientConfig(
+                host=self._config.host,
+                port=self._config.port,
+                duration_seconds=5.0,
+            )
+            result = run_spawn(config, 5)
+            ok = result.successful_connections
+            if ok == 0:
+                first_err = next(
+                    (c.error for c in result.clients if c.error), "unknown"
+                )
                 self.call_from_thread(
                     self.notify,
-                    f"Spawned {ok_count}/{count} clients",
+                    f"Spawn failed: {first_err}",
+                    severity="error",
                 )
             else:
                 self.call_from_thread(
                     self.notify,
-                    "All clients failed — is the server running on "
-                    f"{host}:{port}?",
-                    severity="error",
+                    f"Spawned {ok}/5 clients",
                 )
             self.call_from_thread(self._trigger_refresh)
 

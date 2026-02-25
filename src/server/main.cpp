@@ -32,8 +32,17 @@ static void signal_handler(int /*signum*/)
 /// and GameLoop. The game loop runs on the main thread at 20 Hz.
 int main(int argc, char* argv[])
 {
-    (void)argc;
-    (void)argv;
+    // Parse optional port arguments: --port <game> --control-port <control>
+    uint16_t game_port = 8080;
+    uint16_t control_port = 8081;
+    for (int i = 1; i < argc - 1; ++i) {
+        std::string arg(argv[i]);
+        if (arg == "--port") {
+            game_port = static_cast<uint16_t>(std::stoi(argv[i + 1]));
+        } else if (arg == "--control-port") {
+            control_port = static_cast<uint16_t>(std::stoi(argv[i + 1]));
+        }
+    }
 
     // -----------------------------------------------------------------------
     // 1. Telemetry Logger
@@ -115,7 +124,7 @@ int main(int argc, char* argv[])
     // 6. Control Channel — fault injection TCP server (port 8081)
     // -----------------------------------------------------------------------
     wow::ControlChannelConfig control_config;
-    control_config.port = 8081;
+    control_config.port = control_port;
     wow::ControlChannel control(fault_registry, control_config);
     control.start();
 
@@ -127,7 +136,7 @@ int main(int argc, char* argv[])
     // 7. Game Server — TCP accept for clients (port 8080)
     // -----------------------------------------------------------------------
     wow::GameServerConfig server_config;
-    server_config.port = 8080;
+    server_config.port = game_port;
     wow::GameServer game_server(server_config);
     game_server.set_session_event_queue(&session_events);
     game_server.start();

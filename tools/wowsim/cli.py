@@ -583,9 +583,23 @@ def demo(
     telemetry_path = default_telemetry_path(root)
     clean_telemetry(telemetry_path)
 
-    server = ServerProcess(binary, telemetry_path)
+    # Check if ports are available before starting
+    import socket as _socket
 
-    click.echo(f"Starting server: {binary}")
+    for check_port, label in [(port, "game"), (control_port, "control")]:
+        try:
+            sock = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
+            sock.bind(("127.0.0.1", check_port))
+            sock.close()
+        except OSError:
+            raise click.ClickException(
+                f"Port {check_port} ({label}) is already in use. "
+                f"Kill the process or use --port / --control-port."
+            )
+
+    server = ServerProcess(binary, telemetry_path, port=port, control_port=control_port)
+
+    click.echo(f"Starting server: {binary} (ports {port}/{control_port})")
     try:
         server.start(timeout=10)
     except RuntimeError as exc:

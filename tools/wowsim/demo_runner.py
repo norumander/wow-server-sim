@@ -67,9 +67,17 @@ class ServerProcess:
         sp.stop()
     """
 
-    def __init__(self, binary: Path, telemetry_path: Path) -> None:
+    def __init__(
+        self,
+        binary: Path,
+        telemetry_path: Path,
+        port: int = 8080,
+        control_port: int = 8081,
+    ) -> None:
         self._binary = binary
         self._telemetry_path = telemetry_path
+        self._port = port
+        self._control_port = control_port
         self._process: subprocess.Popen | None = None
 
     @property
@@ -87,7 +95,11 @@ class ServerProcess:
         self._telemetry_path.touch()
 
         self._process = subprocess.Popen(
-            [str(self._binary)],
+            [
+                str(self._binary),
+                "--port", str(self._port),
+                "--control-port", str(self._control_port),
+            ],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
