@@ -151,6 +151,71 @@ class TestFaultActionLabel:
 
 
 # ---------------------------------------------------------------------------
+# Group E2: Game Mechanics Panel (3 tests)
+# ---------------------------------------------------------------------------
+
+
+class TestFormatGameMechanicsPanel:
+    """format_game_mechanics_panel renders a multi-line game mechanics panel."""
+
+    def test_with_summary(self) -> None:
+        from wowsim.dashboard import format_game_mechanics_panel
+        from wowsim.models import (
+            CastMetrics,
+            CombatMetrics,
+            EntityDPS,
+            GameMechanicSummary,
+        )
+
+        summary = GameMechanicSummary(
+            cast_metrics=CastMetrics(
+                casts_started=10, casts_completed=8, casts_interrupted=2,
+                gcd_blocked=1, cast_success_rate=0.8,
+                gcd_block_rate=0.09, cast_rate_per_sec=1.0,
+            ),
+            combat_metrics=CombatMetrics(
+                total_damage=5000, total_attacks=15, kills=2,
+                active_entities=3, overall_dps=250.0,
+            ),
+            top_damage_dealers=[
+                EntityDPS(entity_id=1, total_damage=3000, dps=150.0, attack_count=8),
+            ],
+            duration_seconds=20.0,
+        )
+        result = format_game_mechanics_panel(summary)
+        assert "80.0%" in result  # cast success
+        assert "250.0" in result  # DPS
+        assert "2" in result  # kills
+
+    def test_with_none(self) -> None:
+        from wowsim.dashboard import format_game_mechanics_panel
+
+        result = format_game_mechanics_panel(None)
+        assert "no data" in result.lower() or "No data" in result
+
+    def test_zero_casts_shows_no_rate(self) -> None:
+        from wowsim.dashboard import format_game_mechanics_panel
+        from wowsim.models import CastMetrics, CombatMetrics, GameMechanicSummary
+
+        summary = GameMechanicSummary(
+            cast_metrics=CastMetrics(
+                casts_started=0, casts_completed=0, casts_interrupted=0,
+                gcd_blocked=0, cast_success_rate=0.0,
+                gcd_block_rate=0.0, cast_rate_per_sec=0.0,
+            ),
+            combat_metrics=CombatMetrics(
+                total_damage=0, total_attacks=0, kills=0,
+                active_entities=0, overall_dps=0.0,
+            ),
+            top_damage_dealers=[],
+            duration_seconds=0.0,
+        )
+        result = format_game_mechanics_panel(summary)
+        # Should still render without error
+        assert "0.0%" in result or "0" in result
+
+
+# ---------------------------------------------------------------------------
 # Group F: New entry filtering (3 tests)
 # ---------------------------------------------------------------------------
 
