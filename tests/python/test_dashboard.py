@@ -562,3 +562,40 @@ class TestZoneColumns:
         from wowsim.dashboard import ZONE_COLUMNS
 
         assert len(ZONE_COLUMNS) == 7
+
+
+# ---------------------------------------------------------------------------
+# Group Q: Threat table panel (3 tests)
+# ---------------------------------------------------------------------------
+
+
+class TestFormatThreatTablePanel:
+    """format_threat_table_panel renders ranked damage/threat list."""
+
+    def test_with_dealers(self) -> None:
+        from wowsim.dashboard import format_threat_table_panel
+        from wowsim.models import EntityDPS
+
+        dealers = [
+            EntityDPS(entity_id=1, total_damage=3000, dps=150.0, attack_count=8),
+            EntityDPS(entity_id=2, total_damage=1500, dps=75.0, attack_count=4),
+        ]
+        result = format_threat_table_panel(dealers)
+        assert "#1" in result
+        assert "#2" in result
+        assert "3000" in result
+        assert "150.0" in result
+        assert "1500" in result
+        assert "75.0" in result
+
+    def test_empty_list(self) -> None:
+        from wowsim.dashboard import format_threat_table_panel
+
+        result = format_threat_table_panel([])
+        assert "no data" in result.lower() or "No data" in result
+
+    def test_none(self) -> None:
+        from wowsim.dashboard import format_threat_table_panel
+
+        result = format_threat_table_panel(None)
+        assert "no data" in result.lower() or "No data" in result
