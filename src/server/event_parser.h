@@ -16,6 +16,14 @@ class EventParser {
 public:
     /// Parse a JSON object into a GameEvent. Returns nullptr on failure.
     static std::unique_ptr<GameEvent> parse(const nlohmann::json& obj);
+
+private:
+    static std::unique_ptr<GameEvent> parse_movement(
+        const nlohmann::json& obj, uint64_t session_id);
+    static std::unique_ptr<GameEvent> parse_spell_cast(
+        const nlohmann::json& obj, uint64_t session_id);
+    static std::unique_ptr<GameEvent> parse_combat(
+        const nlohmann::json& obj, uint64_t session_id);
 };
 
 }  // namespace wow
