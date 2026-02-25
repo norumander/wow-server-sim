@@ -10,6 +10,7 @@
 #include <asio.hpp>
 
 #include "server/connection.h"
+#include "server/events/event_queue.h"
 #include "server/session_event_queue.h"
 
 namespace wow {
@@ -51,6 +52,10 @@ public:
     /// The queue is not owned — caller must ensure it outlives the server.
     void set_session_event_queue(SessionEventQueue* queue);
 
+    /// Set the game event queue for parsed TCP events (non-owning).
+    /// Connections push parsed GameEvents here; game thread drains them.
+    void set_event_queue(EventQueue* queue);
+
     // Non-copyable, non-movable.
     GameServer(const GameServer&) = delete;
     GameServer& operator=(const GameServer&) = delete;
@@ -72,6 +77,7 @@ private:
     std::unordered_map<uint64_t, std::shared_ptr<Connection>> connections_;
     std::atomic<size_t> connection_count_{0};
     SessionEventQueue* session_event_queue_ = nullptr;
+    EventQueue* event_queue_ = nullptr;
 };
 
 }  // namespace wow

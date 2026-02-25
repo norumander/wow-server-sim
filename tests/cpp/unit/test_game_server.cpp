@@ -9,6 +9,8 @@
 
 #include <asio.hpp>
 
+#include "server/events/event_queue.h"
+#include "server/events/movement.h"
 #include "server/game_server.h"
 #include "server/session.h"
 #include "server/session_event_queue.h"
@@ -533,5 +535,147 @@ TEST_F(GameServerTest, SessionEvents_NullQueueSafe)
     sock.close();
     ASSERT_TRUE(wait_for([&] { return server.connection_count() == 0; }));
 
+    server.stop();
+}
+
+// ===========================================================================
+// Group H: TCP Event Parsing (5 tests)
+// ===========================================================================
+
+TEST_F(GameServerTest, EventParsing_MovementEventReachesQueue)
+{
+    wow::EventQueue eq;
+    wow::GameServerConfig cfg{0};
+    wow::GameServer server(cfg);
+    server.set_event_queue(&eq);
+    server.start();
+
+    asio::io_context client_ctx;
+    auto sock = connect_client(client_ctx, server.port());
+    ASSERT_TRUE(wait_for([&] { return server.connection_count() == 1; }));
+
+    std::string msg = R"({"type":"movement","session_id":1,"position":{"x":1.0,"y":2.0,"z":3.0}})" "\n";
+    asio::write(sock, asio::buffer(msg));
+
+    EXPECT_TRUE(wait_for([&] { return !eq.empty(); }));
+    auto events = eq.drain();
+    ASSERT_EQ(events.size(), 1u);
+    EXPECT_EQ(events[0]->event_type(), wow::EventType::MOVEMENT);
+
+    auto* move = static_cast<wow::MovementEvent*>(events[0].get());
+    EXPECT_FLOAT_EQ(move->position().x, 1.0f);
+    EXPECT_FLOAT_EQ(move->position().y, 2.0f);
+    EXPECT_FLOAT_EQ(move->position().z, 3.0f);
+
+    sock.close();
+    server.stop();
+}
+
+TEST_F(GameServerTest, EventParsing_MalformedJsonDoesNotCrash)
+{
+    wow::EventQueue eq;
+    wow::GameServerConfig cfg{0};
+    wow::GameServer server(cfg);
+    server.set_event_queue(&eq);
+    server.start();
+
+    asio::io_context client_ctx;
+    auto sock = connect_client(client_ctx, server.port());
+    ASSERT_TRUE(wait_for([&] { return server.connection_count() == 1; }));
+
+    // Send malformed JSON — should not crash or disconnect
+    std::string bad_msg = "not-valid-json\n";
+    asio::write(sock, asio::buffer(bad_msg));
+
+    // Send valid JSON after — should still work
+    std::string good_msg = R"({"type":"movement","session_id":1,"position":{"x":5.0,"y":6.0,"z":7.0}})" "\n";
+    asio::write(sock, asio::buffer(good_msg));
+
+    EXPECT_TRUE(wait_for([&] { return !eq.empty(); }));
+    auto events = eq.drain();
+    ASSERT_EQ(events.size(), 1u);
+    EXPECT_EQ(events[0]->event_type(), wow::EventType::MOVEMENT);
+
+    // Connection should still be alive
+    EXPECT_EQ(server.connection_count(), 1u);
+
+    sock.close();
+    server.stop();
+}
+
+TEST_F(GameServerTest, EventParsing_MultipleEventsInOneWrite)
+{
+    wow::EventQueue eq;
+    wow::GameServerConfig cfg{0};
+    wow::GameServer server(cfg);
+    server.set_event_queue(&eq);
+    server.start();
+
+    asio::io_context client_ctx;
+    auto sock = connect_client(client_ctx, server.port());
+    ASSERT_TRUE(wait_for([&] { return server.connection_count() == 1; }));
+
+    // Two JSON lines in one TCP write
+    std::string msg =
+        R"({"type":"movement","session_id":1,"position":{"x":1.0,"y":2.0,"z":3.0}})" "\n"
+        R"({"type":"movement","session_id":2,"position":{"x":4.0,"y":5.0,"z":6.0}})" "\n";
+    asio::write(sock, asio::buffer(msg));
+
+    EXPECT_TRUE(wait_for([&] { return eq.size() >= 2; }));
+    auto events = eq.drain();
+    ASSERT_EQ(events.size(), 2u);
+    EXPECT_EQ(events[0]->session_id(), 1u);
+    EXPECT_EQ(events[1]->session_id(), 2u);
+
+    sock.close();
+    server.stop();
+}
+
+TEST_F(GameServerTest, EventParsing_UnknownTypeDiscarded)
+{
+    wow::EventQueue eq;
+    wow::GameServerConfig cfg{0};
+    wow::GameServer server(cfg);
+    server.set_event_queue(&eq);
+    server.start();
+
+    asio::io_context client_ctx;
+    auto sock = connect_client(client_ctx, server.port());
+    ASSERT_TRUE(wait_for([&] { return server.connection_count() == 1; }));
+
+    std::string msg = R"({"type":"unknown","session_id":1})" "\n";
+    asio::write(sock, asio::buffer(msg));
+
+    // Give time for processing
+    std::this_thread::sleep_for(50ms);
+    EXPECT_TRUE(eq.empty());
+
+    // Connection should still be alive
+    EXPECT_EQ(server.connection_count(), 1u);
+
+    sock.close();
+    server.stop();
+}
+
+TEST_F(GameServerTest, EventParsing_NullEventQueueSafe)
+{
+    // No event queue set — sending JSON should not crash
+    wow::GameServerConfig cfg{0};
+    wow::GameServer server(cfg);
+    // Intentionally NOT calling set_event_queue
+    server.start();
+
+    asio::io_context client_ctx;
+    auto sock = connect_client(client_ctx, server.port());
+    ASSERT_TRUE(wait_for([&] { return server.connection_count() == 1; }));
+
+    std::string msg = R"({"type":"movement","session_id":1,"position":{"x":1.0,"y":2.0,"z":3.0}})" "\n";
+    asio::write(sock, asio::buffer(msg));
+
+    // Just verify no crash — connection should still be alive
+    std::this_thread::sleep_for(50ms);
+    EXPECT_EQ(server.connection_count(), 1u);
+
+    sock.close();
     server.stop();
 }

@@ -108,6 +108,11 @@ void GameServer::set_session_event_queue(SessionEventQueue* queue)
     session_event_queue_ = queue;
 }
 
+void GameServer::set_event_queue(EventQueue* queue)
+{
+    event_queue_ = queue;
+}
+
 void GameServer::do_accept()
 {
     acceptor_.async_accept(
