@@ -542,21 +542,18 @@ try:
             result = run_pipeline(config)
 
             def _log_results() -> None:
-                log = self.query_one("#event-log", RichLog)
-                outcome = result.outcome.upper()
-                bar = "=" * 40
-                ok = outcome == "PROMOTED"
-                style = "bold green" if ok else "bold red"
-                lines = [f"[{style}]{bar}[/]", f"[{style}]  PIPELINE: {outcome}[/]"]
-                for stage in result.stages:
-                    tag = "PASS" if stage.passed else "FAIL"
-                    lines.append(f"  {tag}  {stage.name} ({stage.duration_seconds:.1f}s)")
-                lines.append(f"[{style}]{bar}[/]")
-                from rich.text import Text
-                log.write(Text(""))
-                for line in lines:
-                    log.write(line)
-                log.write(Text(""))
+                try:
+                    log = self.query_one("#event-log", RichLog)
+                    outcome = result.outcome.upper()
+                    bar = "=" * 40
+                    block = [bar, f"  PIPELINE: {outcome}"]
+                    for stage in result.stages:
+                        tag = "PASS" if stage.passed else "FAIL"
+                        block.append(f"  {tag}  {stage.name} ({stage.duration_seconds:.1f}s)")
+                    block.append(bar)
+                    log.write("\n".join(block))
+                except Exception as exc:
+                    self.notify(f"Log error: {exc}", severity="error")
                 self._pipeline_ran = True
                 self._update_suggestion()
                 self.notify(f"Pipeline: {result.outcome}")
