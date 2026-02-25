@@ -223,6 +223,46 @@ class TestAnomalyDetection:
         anomalies = detect_anomalies([entry])
         assert anomalies == []
 
+    def test_matched_connect_disconnect_no_anomaly(self) -> None:
+        """Matched connect+disconnect pair should not produce anomalies."""
+        import json
+
+        lines = [
+            json.dumps({
+                "v": 1, "timestamp": "2026-02-24T10:00:00.000Z",
+                "type": "event", "component": "game_server",
+                "message": "Connection accepted", "data": {"session_id": 1},
+            }),
+            json.dumps({
+                "v": 1, "timestamp": "2026-02-24T10:00:10.000Z",
+                "type": "event", "component": "game_server",
+                "message": "Client disconnected", "data": {"session_id": 1},
+            }),
+        ]
+        entries = [parse_line(line) for line in lines]
+        entries = [e for e in entries if e is not None]
+        anomalies = detect_anomalies(entries)
+        disconnect_anomalies = [a for a in anomalies if a.type == "unexpected_disconnect"]
+        assert len(disconnect_anomalies) == 0
+
+    def test_unmatched_disconnect_produces_anomaly(self) -> None:
+        """Disconnect without a matching connect should produce an anomaly."""
+        import json
+
+        lines = [
+            json.dumps({
+                "v": 1, "timestamp": "2026-02-24T10:00:10.000Z",
+                "type": "event", "component": "game_server",
+                "message": "Client disconnected", "data": {"session_id": 99},
+            }),
+        ]
+        entries = [parse_line(line) for line in lines]
+        entries = [e for e in entries if e is not None]
+        anomalies = detect_anomalies(entries)
+        disconnect_anomalies = [a for a in anomalies if a.type == "unexpected_disconnect"]
+        assert len(disconnect_anomalies) == 1
+        assert disconnect_anomalies[0].severity == "warning"
+
 
 # ============================================================
 # Group F: CLI Integration (2 tests)
