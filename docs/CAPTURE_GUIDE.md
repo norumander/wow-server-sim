@@ -181,6 +181,63 @@ gifsicle -O3 --lossy=80 docs/assets/fault-cascade.gif -o docs/assets/fault-casca
 
 **Verify:** GIF shows healthy → zone 1 crash → zone 2 overload → recovery arc.
 
+## Docker-Based Recording (Recommended)
+
+The easiest way to produce the two GIF assets is to use the recording Docker container, which bundles asciinema, agg, and gifsicle — no host-side tooling required.
+
+### Quick Start
+
+```bash
+# Build the recording image and run both recordings
+docker compose --profile record run record
+
+# GIFs land directly in docs/assets/ via volume mount
+ls -lh docs/assets/demo-full.gif docs/assets/fault-cascade.gif
+```
+
+### How It Works
+
+`Dockerfile.recording` extends the main multi-stage build:
+- Adds `curl`, `gifsicle` via apt
+- Installs `asciinema` into the existing Python venv (avoids PEP 668 externally-managed issues)
+- Downloads `agg` as a static binary from GitHub releases
+
+Three scripts orchestrate the recordings:
+
+| Script | Purpose |
+|--------|---------|
+| `scripts/record-gifs.sh` | Master script — runs both recordings sequentially, reports results |
+| `scripts/record-demo-full.sh` | Records `demo-full.gif` — full 70s demo at 3x speed |
+| `scripts/record-fault-cascade.sh` | Records `fault-cascade.gif` — F5 cascading zone failure at 2x speed |
+
+### Recording Parameters
+
+| Parameter | demo-full | fault-cascade |
+|-----------|-----------|---------------|
+| Terminal size | 120x35 | 120x35 |
+| Playback speed | 3x | 2x |
+| Font size | 14 | 14 |
+| gifsicle lossy | 80 | 80 |
+| Target size | < 5 MB | < 5 MB |
+
+### Customization
+
+To adjust recording parameters, edit the variables at the top of each `record-*.sh` script:
+
+```bash
+COLS=120      # Terminal columns
+ROWS=35       # Terminal rows
+SPEED=3       # Playback speed multiplier
+FONT_SIZE=14  # GIF font size
+LOSSY=80      # gifsicle lossy compression level (0-200)
+```
+
+### Troubleshooting
+
+- **Build fails on ARM/Apple Silicon**: `agg` is downloaded as an x86_64 binary. The container must run under `linux/amd64` (Docker Desktop emulates this by default).
+- **GIF too large**: Increase `SPEED` or `LOSSY` value in the recording script.
+- **Recording hangs**: The server binary must start within 10 seconds. If the image is stale, rebuild with `docker compose --profile record build record`.
+
 ## General Tips
 
 - **Consistent terminal size**: Use 120x35 for all captures so they look uniform in the README.

@@ -6,6 +6,9 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- Docker-based GIF recording pipeline: `Dockerfile.recording` extends the runtime image with asciinema, agg, and gifsicle. Three recording scripts (`record-gifs.sh`, `record-demo-full.sh`, `record-fault-cascade.sh`) produce `demo-full.gif` (full 70s demo at 3x speed) and `fault-cascade.gif` (F5 cascading zone failure at 2x speed). Docker Compose `record` profile: `docker compose --profile record run record` builds and runs both recordings, outputting GIFs directly to `docs/assets/` via volume mount
+
 ### Fixed
 - F1 LatencySpike, F6 SlowLeak, F7 SplitBrain faults firing multiple times per game tick when called across zones. Added per-tick deduplication guard so global-once-per-tick faults (sleep, counter increment) execute exactly once regardless of zone count
 
