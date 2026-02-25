@@ -366,3 +366,86 @@ class TestCLI:
 
         data = _json.loads(result.output)
         assert data["total_clients"] == 2
+
+
+# ---------------------------------------------------------------------------
+# Group H: Stop Event Early Termination (4 tests)
+# ---------------------------------------------------------------------------
+
+import threading
+
+
+class TestStopEvent:
+    """Verify stop_event causes early termination of client run loops."""
+
+    def test_stop_event_terminates_client_run_early(self, mock_game_server: dict) -> None:
+        """Setting stop_event mid-run causes client to stop before duration expires."""
+        host, port = mock_game_server["host"], mock_game_server["port"]
+        stop_event = threading.Event()
+        cfg = ClientConfig(
+            host=host, port=port, actions_per_second=20.0, duration_seconds=30.0
+        )
+
+        async def _test() -> ClientResult:
+            client = MockGameClient(client_id=0, host=cfg.host, port=cfg.port)
+            # Signal stop after a short delay
+            loop = asyncio.get_event_loop()
+            loop.call_later(0.3, stop_event.set)
+            return await client.run(cfg, stop_event=stop_event)
+
+        result = asyncio.run(_test())
+        assert result.connected is True
+        # Should have stopped well before the 30s duration
+        assert result.duration_seconds < 5.0
+
+    def test_stop_event_terminates_spawn_clients_early(self, mock_game_server: dict) -> None:
+        """Setting stop_event terminates all spawned clients early."""
+        host, port = mock_game_server["host"], mock_game_server["port"]
+        stop_event = threading.Event()
+        cfg = ClientConfig(
+            host=host, port=port, actions_per_second=10.0, duration_seconds=30.0
+        )
+
+        async def _test() -> SpawnResult:
+            loop = asyncio.get_event_loop()
+            loop.call_later(0.3, stop_event.set)
+            return await spawn_clients(cfg, count=3, stop_event=stop_event)
+
+        result = asyncio.run(_test())
+        assert result.total_clients == 3
+        # All clients should have finished well before 30s
+        assert result.total_duration_seconds < 5.0
+
+    def test_persistent_duration_with_stop_event(self, mock_game_server: dict) -> None:
+        """Infinite duration runs until stop_event is set."""
+        host, port = mock_game_server["host"], mock_game_server["port"]
+        stop_event = threading.Event()
+        cfg = ClientConfig(
+            host=host, port=port, actions_per_second=20.0, duration_seconds=float("inf")
+        )
+
+        async def _test() -> ClientResult:
+            client = MockGameClient(client_id=0, host=cfg.host, port=cfg.port)
+            loop = asyncio.get_event_loop()
+            loop.call_later(0.3, stop_event.set)
+            return await client.run(cfg, stop_event=stop_event)
+
+        result = asyncio.run(_test())
+        assert result.connected is True
+        assert result.duration_seconds < 5.0
+        assert result.actions_sent >= 1
+
+    def test_none_stop_event_preserves_behavior(self, mock_game_server: dict) -> None:
+        """Passing no stop_event (default None) behaves as before."""
+        host, port = mock_game_server["host"], mock_game_server["port"]
+        cfg = ClientConfig(
+            host=host, port=port, actions_per_second=20.0, duration_seconds=0.5
+        )
+
+        async def _test() -> ClientResult:
+            client = MockGameClient(client_id=0, host=cfg.host, port=cfg.port)
+            return await client.run(cfg, stop_event=None)
+
+        result = asyncio.run(_test())
+        assert result.connected is True
+        assert result.actions_sent >= 1
